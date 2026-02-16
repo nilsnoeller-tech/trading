@@ -1,8 +1,7 @@
 // ─── Market Data Service ───
 // Holt OHLCV-Daten via Cloudflare-Proxy (Yahoo Finance) und cached in IndexedDB.
 
-// TODO: Nach Cloudflare-Deployment die echte URL einsetzen
-const PROXY_BASE = "https://ncapital-market-proxy.nilsnoeller-tech.workers.dev";
+const PROXY_BASE = "https://ncapital-market-proxy.nils-noeller.workers.dev";
 
 const DB_NAME = "ncapital-market-cache";
 const DB_VERSION = 1;
