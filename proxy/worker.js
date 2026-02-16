@@ -390,8 +390,7 @@ async function sendPush(subscription, payload, env) {
 
     // 404/410 = subscription expired
     if (resp.status === 404 || resp.status === 410) {
-      await env.NCAPITAL_KV.delete("push:subscription");
-      return { sent: false, expired: true };
+      return { sent: false, expired: true, endpoint: subscription.endpoint };
     }
 
     return { sent: resp.ok, status: resp.status };
@@ -404,14 +403,14 @@ async function sendPush(subscription, payload, env) {
 
 async function runCronScan(env) {
   // Read KV state
-  const [subscription, symbolsJson, thresholdsJson] = await Promise.all([
-    env.NCAPITAL_KV.get("push:subscription", "json"),
+  const [subscriptions, symbolsJson, thresholdsJson] = await Promise.all([
+    env.NCAPITAL_KV.get("push:subscriptions", "json"),
     env.NCAPITAL_KV.get("watchlist:symbols", "json"),
     env.NCAPITAL_KV.get("watchlist:thresholds", "json"),
   ]);
 
-  if (!subscription || !symbolsJson || symbolsJson.length === 0) {
-    return { skipped: true, reason: "No subscription or symbols" };
+  if (!subscriptions || subscriptions.length === 0 || !symbolsJson || symbolsJson.length === 0) {
+    return { skipped: true, reason: "No subscriptions or symbols" };
   }
 
   const symbols = symbolsJson;
@@ -461,13 +460,17 @@ async function runCronScan(env) {
       const cooldown = await env.NCAPITAL_KV.get(cooldownKey);
       if (cooldown) continue; // Still in cooldown
 
-      const pushResult = await sendPush(subscription, { title, body, tag, url: "/ncapital-app/" }, env);
-      if (pushResult.sent) {
+      // Send to ALL devices
+      let anySent = false;
+      for (const sub of subscriptions) {
+        const pushResult = await sendPush(sub, { title, body, tag, url: "/ncapital-app/" }, env);
+        if (pushResult.sent) anySent = true;
+      }
+      if (anySent) {
         // Set 1h cooldown
         await env.NCAPITAL_KV.put(cooldownKey, new Date().toISOString(), { expirationTtl: 3600 });
         notifications.push({ symbol: r.displaySymbol, title, body });
       }
-      if (pushResult.expired) break; // Subscription gone, stop sending
     }
   }
 
@@ -482,8 +485,24 @@ async function runCronScan(env) {
 
 // ─── HTTP Route Handlers ───
 
+// Migrate old single subscription to array format
+async function migrateSubscriptions(env) {
+  const oldSub = await env.NCAPITAL_KV.get("push:subscription", "json");
+  if (oldSub) {
+    const existing = (await env.NCAPITAL_KV.get("push:subscriptions", "json")) || [];
+    if (!existing.some(s => s.endpoint === oldSub.endpoint)) {
+      existing.push(oldSub);
+      await env.NCAPITAL_KV.put("push:subscriptions", JSON.stringify(existing));
+    }
+    await env.NCAPITAL_KV.delete("push:subscription");
+  }
+}
+
 async function handlePushRoutes(url, request, env) {
   const path = url.pathname;
+
+  // One-time migration from single to multi subscription
+  await migrateSubscriptions(env);
 
   // GET /api/push/vapid-public-key
   if (path === "/api/push/vapid-public-key" && request.method === "GET") {
@@ -492,13 +511,14 @@ async function handlePushRoutes(url, request, env) {
 
   // GET /api/push/status
   if (path === "/api/push/status" && request.method === "GET") {
-    const [sub, lastRun, lastResults] = await Promise.all([
-      env.NCAPITAL_KV.get("push:subscription"),
+    const [subs, lastRun, lastResults] = await Promise.all([
+      env.NCAPITAL_KV.get("push:subscriptions", "json"),
       env.NCAPITAL_KV.get("scan:lastRun"),
       env.NCAPITAL_KV.get("scan:lastResults", "json"),
     ]);
     return jsonResponse({
-      subscribed: !!sub,
+      subscribed: !!(subs && subs.length > 0),
+      deviceCount: subs ? subs.length : 0,
       lastRun,
       resultCount: lastResults?.length || 0,
       results: lastResults || [],
@@ -517,12 +537,17 @@ async function handlePushRoutes(url, request, env) {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  // POST /api/push/subscribe
+  // POST /api/push/subscribe — adds device to subscriptions array
   if (path === "/api/push/subscribe") {
     if (!body.subscription) {
       return jsonResponse({ error: "Missing subscription" }, 400);
     }
-    await env.NCAPITAL_KV.put("push:subscription", JSON.stringify(body.subscription));
+    // Load existing subscriptions
+    const existing = (await env.NCAPITAL_KV.get("push:subscriptions", "json")) || [];
+    // Deduplicate by endpoint
+    const filtered = existing.filter(s => s.endpoint !== body.subscription.endpoint);
+    filtered.push(body.subscription);
+    await env.NCAPITAL_KV.put("push:subscriptions", JSON.stringify(filtered));
     // Optionally save watchlist + thresholds too
     if (body.symbols) {
       await env.NCAPITAL_KV.put("watchlist:symbols", JSON.stringify(body.symbols));
@@ -530,13 +555,21 @@ async function handlePushRoutes(url, request, env) {
     if (body.thresholds) {
       await env.NCAPITAL_KV.put("watchlist:thresholds", JSON.stringify(body.thresholds));
     }
-    return jsonResponse({ ok: true, message: "Subscription saved" });
+    return jsonResponse({ ok: true, message: "Subscription saved", deviceCount: filtered.length });
   }
 
-  // POST /api/push/unsubscribe
+  // POST /api/push/unsubscribe — removes one device by endpoint
   if (path === "/api/push/unsubscribe") {
-    await env.NCAPITAL_KV.delete("push:subscription");
-    return jsonResponse({ ok: true, message: "Subscription removed" });
+    const endpoint = body.endpoint;
+    if (endpoint) {
+      const existing = (await env.NCAPITAL_KV.get("push:subscriptions", "json")) || [];
+      const filtered = existing.filter(s => s.endpoint !== endpoint);
+      await env.NCAPITAL_KV.put("push:subscriptions", JSON.stringify(filtered));
+      return jsonResponse({ ok: true, message: "Device removed", deviceCount: filtered.length });
+    }
+    // Fallback: remove all
+    await env.NCAPITAL_KV.put("push:subscriptions", "[]");
+    return jsonResponse({ ok: true, message: "All subscriptions removed" });
   }
 
   // POST /api/push/watchlist
@@ -551,19 +584,29 @@ async function handlePushRoutes(url, request, env) {
     return jsonResponse({ ok: true, symbols: body.symbols.length });
   }
 
-  // POST /api/push/test
+  // POST /api/push/test — sends test push to ALL devices
   if (path === "/api/push/test") {
-    const sub = await env.NCAPITAL_KV.get("push:subscription", "json");
-    if (!sub) {
-      return jsonResponse({ error: "No push subscription found" }, 404);
+    const subs = (await env.NCAPITAL_KV.get("push:subscriptions", "json")) || [];
+    if (subs.length === 0) {
+      return jsonResponse({ error: "No push subscriptions found" }, 404);
     }
-    const result = await sendPush(sub, {
-      title: "N-Capital Test",
-      body: "Push-Benachrichtigungen funktionieren!",
-      tag: "test",
-      url: "/ncapital-app/",
-    }, env);
-    return jsonResponse(result);
+    const results = [];
+    const validSubs = [];
+    for (const sub of subs) {
+      const result = await sendPush(sub, {
+        title: "N-Capital Test",
+        body: `Push-Benachrichtigungen funktionieren! (${subs.length} Gerät${subs.length > 1 ? "e" : ""})`,
+        tag: "test",
+        url: "/ncapital-app/",
+      }, env);
+      results.push(result);
+      if (!result.expired) validSubs.push(sub);
+    }
+    // Remove expired subscriptions
+    if (validSubs.length < subs.length) {
+      await env.NCAPITAL_KV.put("push:subscriptions", JSON.stringify(validSubs));
+    }
+    return jsonResponse({ sent: results.some(r => r.sent), devices: results.length, results });
   }
 
   return null; // Not a push route

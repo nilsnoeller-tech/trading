@@ -122,10 +122,16 @@ export async function unsubscribeFromPush() {
   try {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
+    const endpoint = subscription ? subscription.endpoint : null;
     if (subscription) {
       await subscription.unsubscribe();
     }
-    await fetch(`${PROXY_BASE}/api/push/unsubscribe`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    // Send endpoint so server only removes THIS device
+    await fetch(`${PROXY_BASE}/api/push/unsubscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    });
   } catch (e) {
     console.warn("Unsubscribe failed:", e);
   }
