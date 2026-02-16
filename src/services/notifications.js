@@ -183,3 +183,36 @@ export async function getPushServerStatus() {
     return { error: e.message };
   }
 }
+
+// ─── Index Scanner API ───
+
+export async function getScanResults() {
+  try {
+    const resp = await fetch(`${PROXY_BASE}/api/scan/results`);
+    return await resp.json();
+  } catch (e) {
+    return { results: [], count: 0, error: e.message };
+  }
+}
+
+export async function getScanStatus() {
+  try {
+    const resp = await fetch(`${PROXY_BASE}/api/scan/status`);
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+export async function updateScanConfig(config) {
+  try {
+    const resp = await fetch(`${PROXY_BASE}/api/scan/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+}

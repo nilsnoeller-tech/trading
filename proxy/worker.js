@@ -1,9 +1,65 @@
-// ─── N-Capital Market Data Proxy + Push Scanner (Cloudflare Worker) ───
-// Routes: /api/chart, /api/batch, /api/push/*
-// Cron: Scannt Watchlist alle 15 Min und sendet Web Push bei hohen Scores.
+// ─── N-Capital Market Data Proxy + Full Index Scanner (Cloudflare Worker) ───
+// Routes: /api/chart, /api/batch, /api/push/*, /api/scan/*
+// Cron: Chunked scan of S&P 500 + DAX 40 (alle 5 Min ein Chunk, voller Scan ~45 Min)
 // Deployment: cd proxy && npx wrangler deploy
 
 import { buildPushHTTPRequest } from "@pushforge/builder";
+
+// ─── S&P 500 Symbols (~507 Aktien) ───
+
+const SP500_SYMBOLS = [
+  "A","AAPL","ABBV","ABNB","ABT","ACGL","ACN","ADBE","ADI","ADM","ADP","ADSK","AEE","AEP","AES",
+  "AFL","AIG","AIZ","AJG","AKAM","ALB","ALGN","ALL","ALLE","AMAT","AMCR","AMD","AME","AMGN","AMP",
+  "AMT","AMZN","ANET","AON","AOS","APA","APD","APH","APO","APP","APTV","ARE","ARES","ATO","AVB",
+  "AVGO","AVY","AWK","AXON","AXP","AZO","BA","BAC","BALL","BAX","BBWI","BBY","BDX","BEN","BF.B",
+  "BG","BIIB","BK","BKNG","BKR","BLDR","BLK","BMY","BR","BRK.B","BRO","BSX","BX","BXP","C","CAG",
+  "CAH","CARR","CAT","CB","CBOE","CBRE","CCI","CCL","CDNS","CDW","CEG","CF","CFG","CHD","CHRW",
+  "CHTR","CI","CIEN","CINF","CL","CLX","CMCSA","CME","CMG","CMI","CMS","CNC","CNP","COF","COIN",
+  "COO","COP","COR","COST","CPAY","CPB","CPRT","CPT","CRH","CRL","CRM","CRWD","CSCO","CSGP","CSX",
+  "CTAS","CTRA","CTSH","CTVA","CVNA","CVS","CVX","D","DAL","DASH","DD","DDOG","DE","DECK","DELL",
+  "DG","DGX","DHI","DHR","DIS","DLR","DLTR","DOV","DOW","DPZ","DRI","DTE","DUK","DVA","DVN","DXCM",
+  "EA","EBAY","ECL","ED","EFX","EG","EIX","EL","ELV","EME","EMN","EMR","EOG","EPAM","EQIX","EQR",
+  "EQT","ERIE","ES","ESS","ETN","ETR","EVRG","EW","EXC","EXE","EXPD","EXPE","EXR","F","FANG","FAST",
+  "FCX","FDS","FDX","FE","FFIV","FI","FICO","FIS","FISV","FITB","FIX","FLT","FMC","FOX","FOXA","FRT",
+  "FSLR","FTNT","FTV","GD","GDDY","GE","GEHC","GEN","GEV","GILD","GIS","GL","GLW","GM","GNRC","GOOG",
+  "GOOGL","GPC","GPN","GRMN","GS","GWW","HAL","HAS","HBAN","HCA","HD","HIG","HII","HLT","HOLX","HON",
+  "HOOD","HPE","HPQ","HRL","HST","HSY","HUBB","HUM","HWM","IBKR","IBM","ICE","IDXX","IEX","IFF",
+  "INCY","INTC","INTU","INVH","IP","IQV","IR","IRM","ISRG","IT","ITW","IVZ","JBHT","JBL","JCI",
+  "JKHY","JNJ","JPM","K","KDP","KEY","KEYS","KHC","KIM","KKR","KLAC","KMB","KMI","KO","KR","KVUE",
+  "L","LDOS","LEN","LH","LHX","LII","LIN","LLY","LMT","LNT","LOW","LRCX","LULU","LUV","LVS","LW",
+  "LYB","LYV","MA","MAA","MAR","MAS","MCD","MCHP","MCK","MCO","MDLZ","MDT","MET","META","MGM","MKC",
+  "MLM","MMC","MMM","MNST","MO","MOH","MOS","MPC","MPWR","MRK","MRNA","MRSH","MS","MSCI","MSFT",
+  "MSI","MTB","MTCH","MTD","MU","NCLH","NDAQ","NDSN","NEE","NEM","NFLX","NI","NKE","NOC","NOW","NRG",
+  "NSC","NTAP","NTRS","NUE","NVDA","NVR","NWS","NWSA","NXPI","O","ODFL","OKE","OMC","ON","ORCL",
+  "ORLY","OTIS","OXY","PANW","PARA","PAYC","PAYX","PCAR","PCG","PEG","PEP","PFE","PFG","PG","PGR",
+  "PH","PHM","PKG","PLD","PLTR","PM","PNC","PNR","PNW","PODD","POOL","PPG","PPL","PRU","PSA","PSX",
+  "PTC","PWR","PXD","PYPL","Q","QCOM","RCL","REG","REGN","RF","RJF","RL","RMD","ROK","ROL","ROP",
+  "ROST","RSG","RTX","RVTY","SBAC","SBUX","SCHW","SHW","SJM","SLB","SMCI","SNA","SNPS","SO","SOLV",
+  "SPG","SPGI","SRE","STE","STLD","STT","STX","STZ","SW","SWK","SWKS","SYF","SYK","SYY","T","TAP",
+  "TDG","TDY","TECH","TEL","TER","TFC","TGT","TJX","TKO","TMO","TMUS","TPL","TPR","TRGP","TRMB",
+  "TROW","TRV","TSCO","TSLA","TSN","TT","TTD","TTWO","TXN","TXT","TYL","UAL","UBER","UDR","UHS",
+  "ULTA","UNH","UNP","UPS","URI","USB","V","VICI","VLO","VLTO","VMC","VRSK","VRSN","VRTX","VST",
+  "VTR","VTRS","VZ","WAB","WAT","WBD","WDAY","WDC","WEC","WELL","WFC","WM","WMB","WMT","WRB","WRK",
+  "WSM","WST","WTW","WY","WYNN","XEL","XOM","XYL","YUM","ZBH","ZBRA","ZTS",
+];
+
+// ─── DAX 40 Symbols (Yahoo Finance .DE Suffix) ───
+
+const DAX40_SYMBOLS = [
+  "ADS.DE","AIR.DE","ALV.DE","BAS.DE","BAYN.DE","BEI.DE","BMW.DE","BNR.DE","CBK.DE","CON.DE",
+  "1COV.DE","DB1.DE","DBK.DE","DHL.DE","DTE.DE","DTG.DE","ENR.DE","FRE.DE","G1A.DE","HEI.DE",
+  "HEN3.DE","HNR1.DE","IFX.DE","MBG.DE","MRK.DE","MTX.DE","MUV2.DE","P911.DE","PAH3.DE","PUM.DE",
+  "QIA.DE","RHM.DE","RWE.DE","SAP.DE","SHL.DE","SIE.DE","SRT3.DE","VOW3.DE","ZAL.DE",
+];
+
+const ALL_INDEX_SYMBOLS = [...SP500_SYMBOLS, ...DAX40_SYMBOLS];
+
+const SCAN_DEFAULTS = {
+  chunkSize: 60,
+  parallelBatch: 10,
+  threshold: 60,        // Minimum combined score to show in results
+  notifyThreshold: 70,  // Minimum combined score to trigger push notification
+};
 
 // ─── Constants & CORS ───
 
@@ -399,88 +455,140 @@ async function sendPush(subscription, payload, env) {
   }
 }
 
-// ─── Cron Scanner ───
+// ─── Chunked Index Scanner (State Machine) ───
+// Scans ALL_INDEX_SYMBOLS in chunks of ~60 per cron invocation.
+// After the last chunk, merges results, filters by score, sends push notifications.
 
-async function runCronScan(env) {
-  // Read KV state
-  const [subscriptions, symbolsJson, thresholdsJson] = await Promise.all([
-    env.NCAPITAL_KV.get("push:subscriptions", "json"),
-    env.NCAPITAL_KV.get("watchlist:symbols", "json"),
-    env.NCAPITAL_KV.get("watchlist:thresholds", "json"),
-  ]);
+function errorResult(sym, errMsg) {
+  return {
+    symbol: sym, displaySymbol: sym.replace(/\.DE$/i, ""), name: sym,
+    currency: sym.endsWith(".DE") ? "EUR" : "USD", price: 0, change: 0,
+    swing: { total: 0, factors: [], signals: [], error: errMsg },
+    intraday: { total: 0, factors: [], signals: [], error: errMsg },
+    timestamp: new Date().toISOString(),
+  };
+}
 
-  if (!subscriptions || subscriptions.length === 0 || !symbolsJson || symbolsJson.length === 0) {
-    return { skipped: true, reason: "No subscriptions or symbols" };
-  }
+async function runChunkedScan(env) {
+  const config = (await env.NCAPITAL_KV.get("scan:config", "json")) || SCAN_DEFAULTS;
+  const chunkSize = config.chunkSize || SCAN_DEFAULTS.chunkSize;
+  const parallelBatch = config.parallelBatch || SCAN_DEFAULTS.parallelBatch;
+  const totalChunks = Math.ceil(ALL_INDEX_SYMBOLS.length / chunkSize);
+  const pointer = parseInt(await env.NCAPITAL_KV.get("scan:pointer") || "0", 10);
 
-  const symbols = symbolsJson;
-  const thresholds = thresholdsJson || { swing: 70, intraday: 75 };
+  // Determine symbols for this chunk
+  const start = pointer * chunkSize;
+  const end = Math.min(start + chunkSize, ALL_INDEX_SYMBOLS.length);
+  const chunkSymbols = ALL_INDEX_SYMBOLS.slice(start, end);
+
+  console.log(`[Scan] Chunk ${pointer + 1}/${totalChunks}: ${chunkSymbols.length} symbols (${chunkSymbols[0]}..${chunkSymbols[chunkSymbols.length - 1]})`);
+
+  // Scan in parallel batches
   const results = [];
-  const notifications = [];
-
-  // Scan in batches of 5
-  for (let i = 0; i < symbols.length; i += 5) {
-    const batch = symbols.slice(i, i + 5);
+  for (let i = 0; i < chunkSymbols.length; i += parallelBatch) {
+    const batch = chunkSymbols.slice(i, i + parallelBatch);
     const batchResults = await Promise.all(
-      batch.map((sym) => scanSymbolServer(sym).catch((err) => ({
-        symbol: sym, displaySymbol: sym.replace(/\.DE$/i, ""), name: sym,
-        currency: "USD", price: 0, change: 0,
-        swing: { total: 0, factors: [], signals: [], error: err.message },
-        intraday: { total: 0, factors: [], signals: [], error: err.message },
-        timestamp: new Date().toISOString(),
-      })))
+      batch.map((sym) => scanSymbolServer(sym).catch((err) => errorResult(sym, err.message)))
     );
     results.push(...batchResults);
   }
 
-  // Check thresholds + cooldowns, send notifications
-  for (const r of results) {
-    let shouldNotify = false;
-    let title = "";
-    let body = "";
-    let tag = "";
+  // Write chunk results to KV (TTL 2h)
+  await env.NCAPITAL_KV.put(`scan:chunk:${pointer}`, JSON.stringify(results), { expirationTtl: 7200 });
 
-    if (r.swing.total >= thresholds.swing) {
-      const topSignals = r.swing.signals.slice(0, 3).join(" + ");
-      title = `${r.displaySymbol} Swing-Setup (${r.swing.total})`;
-      body = `${r.price.toFixed(2)} ${r.currency} — ${topSignals || "Starkes Signal"}`;
-      tag = `swing-${r.displaySymbol}`;
-      shouldNotify = true;
-    } else if (r.intraday.total >= thresholds.intraday) {
-      const topSignals = r.intraday.signals.slice(0, 3).join(" + ");
-      title = `${r.displaySymbol} Intraday (${r.intraday.total})`;
-      body = `${r.price.toFixed(2)} ${r.currency} — ${topSignals || "Starkes Signal"}`;
-      tag = `intraday-${r.displaySymbol}`;
-      shouldNotify = true;
+  const nextPointer = pointer + 1;
+
+  if (nextPointer >= totalChunks) {
+    // Last chunk done — merge all results + notify
+    console.log(`[Scan] All ${totalChunks} chunks done. Merging...`);
+    await mergeAndNotify(env, config, totalChunks);
+    await env.NCAPITAL_KV.put("scan:pointer", "0");
+    await env.NCAPITAL_KV.put("scan:lastFullScan", new Date().toISOString());
+  } else {
+    await env.NCAPITAL_KV.put("scan:pointer", String(nextPointer));
+  }
+
+  await env.NCAPITAL_KV.put("scan:lastRun", new Date().toISOString());
+
+  return { chunk: pointer + 1, totalChunks, scanned: results.length };
+}
+
+async function mergeAndNotify(env, config, totalChunks) {
+  // Read all chunks
+  const allResults = [];
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = await env.NCAPITAL_KV.get(`scan:chunk:${i}`, "json");
+    if (chunk) allResults.push(...chunk);
+  }
+
+  // Compute combined score and filter
+  const threshold = config.threshold || SCAN_DEFAULTS.threshold;
+  const notifyThreshold = config.notifyThreshold || SCAN_DEFAULTS.notifyThreshold;
+
+  const scored = allResults.map((r) => ({
+    ...r,
+    combinedScore: Math.round(r.swing.total * 0.6 + r.intraday.total * 0.4),
+  }));
+
+  const filtered = scored
+    .filter((r) => r.combinedScore >= threshold)
+    .sort((a, b) => b.combinedScore - a.combinedScore);
+
+  // Save merged results (TTL 2h)
+  await env.NCAPITAL_KV.put("scan:results", JSON.stringify(filtered), { expirationTtl: 7200 });
+
+  // Update stats
+  const stats = {
+    totalScanned: allResults.length,
+    hits: filtered.length,
+    errors: allResults.filter((r) => r.swing.error || r.intraday.error).length,
+    timestamp: new Date().toISOString(),
+  };
+  await env.NCAPITAL_KV.put("scan:stats", JSON.stringify(stats));
+
+  console.log(`[Scan] Merged: ${allResults.length} total, ${filtered.length} hits (score >= ${threshold}), ${stats.errors} errors`);
+
+  // Send push notifications for high-score results
+  const subscriptions = (await env.NCAPITAL_KV.get("push:subscriptions", "json")) || [];
+  if (subscriptions.length === 0) return;
+
+  const notifyResults = filtered.filter((r) => r.combinedScore >= notifyThreshold);
+  const notifications = [];
+  const validSubs = [...subscriptions];
+
+  for (const r of notifyResults) {
+    const cooldownKey = `cooldown:${r.displaySymbol}`;
+    const cooldown = await env.NCAPITAL_KV.get(cooldownKey);
+    if (cooldown) continue;
+
+    const isSwing = r.swing.total > r.intraday.total;
+    const topSignals = isSwing
+      ? r.swing.signals.slice(0, 3).join(" + ")
+      : r.intraday.signals.slice(0, 3).join(" + ");
+
+    const title = `${r.displaySymbol} Score ${r.combinedScore} (${isSwing ? "Swing" : "Intraday"})`;
+    const body = `${r.price.toFixed(2)} ${r.currency} — ${topSignals || "Starkes Signal"}`;
+    const tag = `scan-${r.displaySymbol}`;
+
+    let anySent = false;
+    for (let si = validSubs.length - 1; si >= 0; si--) {
+      const pushResult = await sendPush(validSubs[si], { title, body, tag, url: "/ncapital-app/" }, env);
+      if (pushResult.sent) anySent = true;
+      if (pushResult.expired) validSubs.splice(si, 1);
     }
 
-    if (shouldNotify) {
-      // Check cooldown
-      const cooldownKey = `cooldown:${r.displaySymbol}`;
-      const cooldown = await env.NCAPITAL_KV.get(cooldownKey);
-      if (cooldown) continue; // Still in cooldown
-
-      // Send to ALL devices
-      let anySent = false;
-      for (const sub of subscriptions) {
-        const pushResult = await sendPush(sub, { title, body, tag, url: "/ncapital-app/" }, env);
-        if (pushResult.sent) anySent = true;
-      }
-      if (anySent) {
-        // Set 1h cooldown
-        await env.NCAPITAL_KV.put(cooldownKey, new Date().toISOString(), { expirationTtl: 3600 });
-        notifications.push({ symbol: r.displaySymbol, title, body });
-      }
+    if (anySent) {
+      await env.NCAPITAL_KV.put(cooldownKey, new Date().toISOString(), { expirationTtl: 3600 });
+      notifications.push({ symbol: r.displaySymbol, score: r.combinedScore, title });
     }
   }
 
-  // Save results + timestamp
-  await Promise.all([
-    env.NCAPITAL_KV.put("scan:lastResults", JSON.stringify(results)),
-    env.NCAPITAL_KV.put("scan:lastRun", new Date().toISOString()),
-  ]);
+  // Clean expired subscriptions
+  if (validSubs.length < subscriptions.length) {
+    await env.NCAPITAL_KV.put("push:subscriptions", JSON.stringify(validSubs));
+  }
 
-  return { scanned: results.length, notifications: notifications.length, results: notifications };
+  console.log(`[Scan] Notifications sent: ${notifications.length}`);
 }
 
 // ─── HTTP Route Handlers ───
@@ -612,6 +720,59 @@ async function handlePushRoutes(url, request, env) {
   return null; // Not a push route
 }
 
+// ─── Scan Routes (/api/scan/*) ───
+
+async function handleScanRoutes(url, request, env) {
+  const path = url.pathname;
+
+  // GET /api/scan/results — filtered scan results from KV
+  if (path === "/api/scan/results" && request.method === "GET") {
+    const results = (await env.NCAPITAL_KV.get("scan:results", "json")) || [];
+    const lastFullScan = await env.NCAPITAL_KV.get("scan:lastFullScan");
+    return jsonResponse({ results, lastFullScan, count: results.length }, 200, 60);
+  }
+
+  // GET /api/scan/status — scan progress info
+  if (path === "/api/scan/status" && request.method === "GET") {
+    const config = (await env.NCAPITAL_KV.get("scan:config", "json")) || SCAN_DEFAULTS;
+    const chunkSize = config.chunkSize || SCAN_DEFAULTS.chunkSize;
+    const totalChunks = Math.ceil(ALL_INDEX_SYMBOLS.length / chunkSize);
+    const [pointer, lastRun, lastFullScan, stats] = await Promise.all([
+      env.NCAPITAL_KV.get("scan:pointer"),
+      env.NCAPITAL_KV.get("scan:lastRun"),
+      env.NCAPITAL_KV.get("scan:lastFullScan"),
+      env.NCAPITAL_KV.get("scan:stats", "json"),
+    ]);
+    return jsonResponse({
+      currentChunk: parseInt(pointer || "0", 10),
+      totalChunks,
+      totalSymbols: ALL_INDEX_SYMBOLS.length,
+      sp500Count: SP500_SYMBOLS.length,
+      dax40Count: DAX40_SYMBOLS.length,
+      lastRun,
+      lastFullScan,
+      stats: stats || null,
+      config,
+    }, 200, 0);
+  }
+
+  // POST /api/scan/config — update scan thresholds
+  if (path === "/api/scan/config" && request.method === "POST") {
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+    const current = (await env.NCAPITAL_KV.get("scan:config", "json")) || SCAN_DEFAULTS;
+    const updated = {
+      ...current,
+      ...(body.threshold != null && { threshold: Math.max(0, Math.min(100, body.threshold)) }),
+      ...(body.notifyThreshold != null && { notifyThreshold: Math.max(0, Math.min(100, body.notifyThreshold)) }),
+    };
+    await env.NCAPITAL_KV.put("scan:config", JSON.stringify(updated));
+    return jsonResponse({ ok: true, config: updated });
+  }
+
+  return null;
+}
+
 // ─── Export: fetch + scheduled ───
 
 export default {
@@ -628,6 +789,13 @@ export default {
       const resp = await handlePushRoutes(url, request, env);
       if (resp) return resp;
       return jsonResponse({ error: "Unknown push endpoint" }, 404);
+    }
+
+    // ── Scan Routes ──
+    if (url.pathname.startsWith("/api/scan/")) {
+      const resp = await handleScanRoutes(url, request, env);
+      if (resp) return resp;
+      return jsonResponse({ error: "Unknown scan endpoint" }, 404);
     }
 
     // ── Existing GET-only routes ──
@@ -698,6 +866,6 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runCronScan(env));
+    ctx.waitUntil(runChunkedScan(env));
   },
 };
