@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, Layers, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2 } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2, Eye } from "lucide-react";
+import Watchlist from "./components/Watchlist";
 import { useAutoScore } from "./hooks/useAutoScore";
 import { getFinvizChartUrl, isFinvizAvailable } from "./services/marketData";
 
@@ -1697,56 +1698,6 @@ const TradeLog = ({ tradeList, onUpdateTrade }) => {
 };
 
 // ════════════════════════════════════════════════════════════════
-// ─── SETUP REGELN ───
-// ════════════════════════════════════════════════════════════════
-const SetupDefs = () => {
-  const ww = useWindowWidth();
-  const isMobile = ww < 600;
-  const setups = [
-    { name: "Breakout", icon: Zap, color: C.accent, criteria: [
-      { label: "C1: Primär-Signal (25%)", desc: "Level mind. 3x getestet, gleicher Preis +/-0.5%, Konsolidierung <3% Range" },
-      { label: "C2: Bestätigung (20%)", desc: "Vol. >=150% des MA20, Close im obersten Drittel, vorheriger Bruch mit Momentum" },
-      { label: "C3: Volumen/Stärke (20%)", desc: "Schwacher Rücklauf (kleine Kerzen), Volumen sinkt beim Ausbruch nicht" },
-      { label: "C4: Kontext/Divergenz (20%)", desc: "Rejection am Level sichtbar, Bestätigungskerze vorhanden (Hammer/Engulfing)" },
-      { label: "C5: Zusatz-Filter (15%)", desc: "CRV automatisch berechnet, Handelszeitfenster beachten" },
-    ]},
-    { name: "Mean Reversion", icon: Activity, color: C.green, criteria: [
-      { label: "C1: Primär-Signal (25%)", desc: "Preis durchbricht Bollinger Band (20,2) nach außen" },
-      { label: "C2: Bestätigung (20%)", desc: "RSI extrem: >70 (Short) / <30 (Long)" },
-      { label: "C3: Volumen/Stärke (20%)", desc: "An bekannter S/R-Zone, historisch +/-1% Toleranz" },
-      { label: "C4: Kontext/Divergenz (20%)", desc: "Divergenz gegenläufig, neues Hoch/Tief zeigt Schwäche" },
-      { label: "C5: Zusatz-Filter (15%)", desc: "Abwechselnd rot/grün Kerzen, Trend zeigt Schwäche" },
-    ]},
-    { name: "Follow-Through", icon: TrendingUp, color: C.blue, criteria: [
-      { label: "C1: Primär-Signal (25%)", desc: "Marktstruktur intakt (HH/HL), letzte 3 Swings steigend/fallend" },
-      { label: "C2: Bestätigung (20%)", desc: "EMAs in Reihenfolge: 20 > 50 > 200" },
-      { label: "C3: Volumen/Stärke (20%)", desc: "WARN: >20% Überhitzung vermeiden" },
-      { label: "C4: Kontext/Divergenz (20%)", desc: "Pullback ins Fib 38.2-50%, Retrace-Tool nutzen" },
-      { label: "C5: Zusatz-Filter (15%)", desc: "STOP: Fib 61.8% = Support gebrochen" },
-    ]},
-  ];
-
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 20 }}>
-      {setups.map(s => (
-        <GlassCard key={s.name} style={{ borderTop: `3px solid ${s.color}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: `${s.color}15`, border: `1px solid ${s.color}30`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <s.icon size={20} color={s.color} />
-            </div>
-            <span style={{ fontSize: 17, fontWeight: 700, color: C.text }}>{s.name}</span>
-          </div>
-          {s.criteria.map((c, i) => (
-            <div key={i} style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 8, background: "rgba(10,13,17,0.4)", border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: s.color, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.03em" }}>{c.label}</div>
-              <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5 }}>{c.desc}</div>
-            </div>
-          ))}
-        </GlassCard>
-      ))}
-    </div>
-  );
-};
 
 // ════════════════════════════════════════════════════════════════
 // ─── MAIN APP ───
@@ -1790,7 +1741,7 @@ export default function TradingJournal() {
     check: { label: "Trade Check", icon: Calculator, sub: "Bewerte neue Trade-Setups" },
     trades: { label: "Trade Log", icon: BookOpen, sub: "Alle Trades im Detail" },
     dashboard: { label: "Dashboard", icon: LayoutDashboard, sub: "Übersicht deiner Performance" },
-    setups: { label: "Setup Regeln", icon: Layers, sub: "Regeln für deine Setups" },
+    watchlist: { label: "Watchlist", icon: Eye, sub: "Scanner fuer Swing- & Intraday-Setups" },
   };
 
   const renderPage = () => {
@@ -1798,7 +1749,7 @@ export default function TradingJournal() {
       case "check": return <TradeCheck portfolio={portfolio} tradeList={tradeList} onAddTrade={addTrade} onUpdateTrade={updateTrade} onNavigate={navigate} />;
       case "trades": return <TradeLog tradeList={tradeList} onUpdateTrade={updateTrade} />;
       case "dashboard": return <Dashboard portfolio={portfolio} />;
-      case "setups": return <SetupDefs />;
+      case "watchlist": return <Watchlist onNavigate={navigate} />;
       default: return null;
     }
   };
