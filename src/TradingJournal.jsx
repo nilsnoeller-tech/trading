@@ -755,6 +755,7 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
 
       {/* ── INPUTS STEP ── */}
       {!showResults && currentQ?.type === "inputs" && (
+        <>
         <GlassCard style={{ animation: "fadeIn 0.4s ease-out" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
             <div style={{ width: 48, height: 48, borderRadius: 14, background: `${currentQ.color}15`, border: `1px solid ${currentQ.color}30`, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -918,95 +919,99 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
                 ))}
               </div>
 
-              {/* ── Auto-Fill Button ── */}
-              <div style={{ marginTop: 16 }}>
-                <button
-                  onClick={() => computeAutoScores(inputs.symbol, inputs.waehrung, einstieg)}
-                  disabled={autoLoading || !inputs.symbol.trim()}
-                  style={{
-                    width: "100%", padding: "14px 20px", borderRadius: 12, cursor: autoLoading ? "wait" : "pointer",
-                    background: autoScores
-                      ? `linear-gradient(135deg, ${C.green}20, ${C.green}08)`
-                      : `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`,
-                    color: autoScores ? C.green : "#fff",
-                    fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                    transition: "all 0.3s", opacity: autoLoading ? 0.7 : 1,
-                    border: autoScores ? `1px solid ${C.green}30` : "none",
-                  }}
-                >
-                  {autoLoading ? (
-                    <>
-                      <div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                      Analysiere Marktdaten fuer {inputs.symbol.toUpperCase()}...
-                    </>
-                  ) : autoScores ? (
-                    <>
-                      <CheckCircle size={16} />
-                      Auto-Analyse abgeschlossen — erneut laden?
-                    </>
-                  ) : (
-                    <>
-                      <Zap size={16} />
-                      Auto-Fill starten
-                    </>
-                  )}
-                </button>
-                <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-
-                {/* Auto-Score Ergebnis-Banner */}
-                {autoScores && dataTimestamp && (
-                  <div style={{
-                    marginTop: 10, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-                    background: staleData ? `${C.yellow}08` : `${C.green}08`,
-                    border: `1px solid ${staleData ? C.yellow : C.green}20`,
-                  }}>
-                    {staleData ? <WifiOff size={14} color={C.yellow} /> : <Wifi size={14} color={C.green} />}
-                    <span style={{ fontSize: 12, color: staleData ? C.yellow : C.green, fontWeight: 600 }}>
-                      {staleData ? "Offline-Daten" : "Live-Daten"} · {dataTimestamp.toLocaleTimeString("de-DE")}
-                    </span>
-                    {marketData && (
-                      <span style={{ fontSize: 11, color: C.textDim, marginLeft: "auto" }}>
-                        {marketData.candles} Kerzen · Letzter Kurs: {marketData.lastPrice?.toFixed(2)} {marketData.currency}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Auto-Score Fehler */}
-                {autoError && (
-                  <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", gap: 8, background: `${C.red}08`, border: `1px solid ${C.red}20` }}>
-                    <AlertTriangle size={14} color={C.red} />
-                    <span style={{ fontSize: 12, color: C.red }}>{autoError}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Finviz Chart ── */}
-              {inputs.symbol.trim() && isFinvizAvailable(inputs.symbol) && (
-                <div style={{ marginTop: 16, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 11, color: C.textDim, padding: "6px 12px", background: "rgba(10,13,17,0.6)", display: "flex", alignItems: "center", gap: 6 }}>
-                    <BarChart2 size={12} />
-                    Finviz Daily Chart — {inputs.symbol.toUpperCase()}
-                  </div>
-                  <img
-                    src={getFinvizChartUrl(inputs.symbol)}
-                    alt={`Chart ${inputs.symbol}`}
-                    style={{ width: "100%", display: "block", background: "#fff" }}
-                    onError={(e) => { e.target.style.display = "none"; e.target.previousSibling && (e.target.previousSibling.style.display = "none"); }}
-                  />
-                </div>
-              )}
-              {inputs.symbol.trim() && !isFinvizAvailable(inputs.symbol) && (
-                <div style={{ marginTop: 16, padding: "10px 14px", borderRadius: 10, background: `${C.accent}08`, border: `1px solid ${C.accent}15` }}>
-                  <span style={{ fontSize: 11, color: C.textDim }}>
-                    <BarChart2 size={12} style={{ verticalAlign: "middle", marginRight: 6 }} />
-                    Finviz-Chart fuer EU-Aktien nicht verfuegbar — nutze boerse.de oder TradingView fuer {inputs.symbol.toUpperCase()}
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </GlassCard>
+
+        {/* ── Auto-Fill Button (außerhalb GlassCard, immer sichtbar wenn Symbol + Einstieg vorhanden) ── */}
+        {inputs.symbol.trim() && einstieg > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <button
+              onClick={() => computeAutoScores(inputs.symbol, inputs.waehrung, einstieg)}
+              disabled={autoLoading}
+              style={{
+                width: "100%", padding: "14px 20px", borderRadius: 12, cursor: autoLoading ? "wait" : "pointer",
+                background: autoScores
+                  ? `linear-gradient(135deg, ${C.green}20, ${C.green}08)`
+                  : `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`,
+                color: autoScores ? C.green : "#fff",
+                fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                transition: "all 0.3s", opacity: autoLoading ? 0.7 : 1,
+                border: autoScores ? `1px solid ${C.green}30` : "none",
+              }}
+            >
+              {autoLoading ? (
+                <>
+                  <div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                  Analysiere Marktdaten fuer {inputs.symbol.toUpperCase()}...
+                </>
+              ) : autoScores ? (
+                <>
+                  <CheckCircle size={16} />
+                  Auto-Analyse abgeschlossen — erneut laden?
+                </>
+              ) : (
+                <>
+                  <Zap size={16} />
+                  Auto-Fill starten
+                </>
+              )}
+            </button>
+            <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+
+            {/* Auto-Score Ergebnis-Banner */}
+            {autoScores && dataTimestamp && (
+              <div style={{
+                marginTop: 10, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                background: staleData ? `${C.yellow}08` : `${C.green}08`,
+                border: `1px solid ${staleData ? C.yellow : C.green}20`,
+              }}>
+                {staleData ? <WifiOff size={14} color={C.yellow} /> : <Wifi size={14} color={C.green} />}
+                <span style={{ fontSize: 12, color: staleData ? C.yellow : C.green, fontWeight: 600 }}>
+                  {staleData ? "Offline-Daten" : "Live-Daten"} · {dataTimestamp.toLocaleTimeString("de-DE")}
+                </span>
+                {marketData && (
+                  <span style={{ fontSize: 11, color: C.textDim, marginLeft: "auto" }}>
+                    {marketData.candles} Kerzen · Letzter Kurs: {marketData.lastPrice?.toFixed(2)} {marketData.currency}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Auto-Score Fehler */}
+            {autoError && (
+              <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", gap: 8, background: `${C.red}08`, border: `1px solid ${C.red}20` }}>
+                <AlertTriangle size={14} color={C.red} />
+                <span style={{ fontSize: 12, color: C.red }}>{autoError}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Finviz Chart (außerhalb GlassCard, kompakt auf Mobile) ── */}
+        {inputs.symbol.trim() && isFinvizAvailable(inputs.symbol) && (
+          <div style={{ marginTop: 12, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 11, color: C.textDim, padding: "6px 12px", background: "rgba(10,13,17,0.6)", display: "flex", alignItems: "center", gap: 6 }}>
+              <BarChart2 size={12} />
+              Finviz Daily Chart — {inputs.symbol.toUpperCase()}
+            </div>
+            <img
+              src={getFinvizChartUrl(inputs.symbol)}
+              alt={`Chart ${inputs.symbol}`}
+              style={{ width: "100%", display: "block", background: "#fff" }}
+              onError={(e) => { e.target.style.display = "none"; e.target.previousSibling && (e.target.previousSibling.style.display = "none"); }}
+            />
+          </div>
+        )}
+        {inputs.symbol.trim() && !isFinvizAvailable(inputs.symbol) && (
+          <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: `${C.accent}08`, border: `1px solid ${C.accent}15` }}>
+            <span style={{ fontSize: 11, color: C.textDim }}>
+              <BarChart2 size={12} style={{ verticalAlign: "middle", marginRight: 6 }} />
+              Finviz-Chart fuer EU-Aktien nicht verfuegbar — nutze boerse.de oder TradingView fuer {inputs.symbol.toUpperCase()}
+            </span>
+          </div>
+        )}
+        </>
       )}
 
       {/* ── CHOICE STEP ── */}
