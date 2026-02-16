@@ -28,14 +28,32 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        runtimeCaching: [{
-          urlPattern: /^https:\/\/api\.frankfurter\.app\/.*/i,
-          handler: 'NetworkFirst',
-          options: {
-            cacheName: 'fx-api',
-            expiration: { maxEntries: 10, maxAgeSeconds: 86400 },
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/api\.frankfurter\.(app|dev)\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'fx-api',
+              expiration: { maxEntries: 10, maxAgeSeconds: 86400 },
+            },
           },
-        }],
+          {
+            urlPattern: /^https:\/\/ncapital-market-proxy\..*\.workers\.dev\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'market-data-api',
+              expiration: { maxEntries: 50, maxAgeSeconds: 14400 }, // 4h
+            },
+          },
+          {
+            urlPattern: /^https:\/\/finviz\.com\/chart\.ashx\?.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'finviz-charts',
+              expiration: { maxEntries: 30, maxAgeSeconds: 3600 }, // 1h
+            },
+          },
+        ],
       },
     }),
   ],

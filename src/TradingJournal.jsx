@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, Layers, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, Layers, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2 } from "lucide-react";
+import { useAutoScore } from "./hooks/useAutoScore";
+import { getFinvizChartUrl, isFinvizAvailable } from "./services/marketData";
 
 // ─── Color System ───
 const C = {
@@ -497,9 +499,13 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
   const [fxDate, setFxDate] = useState("");
   const [tradeAdded, setTradeAdded] = useState(false);
   const [addInputs, setAddInputs] = useState({ stueckzahl: "", kaufkurs: "", datum: new Date().toISOString().split("T")[0] });
+  const [manualOverrides, setManualOverrides] = useState({}); // Tracks which questions were manually answered after auto-fill
   const totalSteps = QUESTIONS.length;
   const ww = useWindowWidth();
   const isMobile = ww < 600;
+
+  // ── Auto-Score Integration ──
+  const { autoScores, loading: autoLoading, error: autoError, dataTimestamp, staleData, marketData, computeAutoScores, resetAutoScores } = useAutoScore();
 
   // ── Symbol-Historie ──
   const symbolHistory = useMemo(() => {
@@ -556,7 +562,26 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
   const toEur = (val) => isUsd ? val * wechselkurs : val;
 
   const updateInput = (k, v) => setInputs(prev => ({ ...prev, [k]: v }));
-  const selectAnswer = (qId, optionIndex) => setAnswers(prev => ({ ...prev, [qId]: optionIndex }));
+  const selectAnswer = (qId, optionIndex) => {
+    setAnswers(prev => ({ ...prev, [qId]: optionIndex }));
+    // Track dass diese Frage manuell beantwortet wurde (nach Auto-Fill)
+    if (autoScores) setManualOverrides(prev => ({ ...prev, [qId]: true }));
+  };
+
+  // ── Auto-Fill: Antworten vorausfuellen wenn autoScores verfuegbar ──
+  useEffect(() => {
+    if (!autoScores) return;
+    setAnswers(prev => {
+      const next = { ...prev };
+      Object.entries(autoScores).forEach(([qId, result]) => {
+        // Nur vorausfuellen wenn nicht bereits manuell beantwortet
+        if (next[qId] === undefined && !manualOverrides[qId]) {
+          next[qId] = result.optionIndex;
+        }
+      });
+      return next;
+    });
+  }, [autoScores]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canProceed = step === 0
     ? (parseFloat(inputs.einstieg) > 0 && parseFloat(inputs.stopLoss) > 0 && parseFloat(inputs.ziel) > 0)
@@ -658,10 +683,11 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
   const minCrv = ampelResult.ampel === "GRÜN" ? 1.5 : ampelResult.ampel === "ORANGE" ? 2.0 : ampelResult.ampel === "ROT" ? 3.0 : Infinity;
 
   const reset = () => {
-    setStep(0); setAnswers({}); setTradeAdded(false);
+    setStep(0); setAnswers({}); setTradeAdded(false); setManualOverrides({});
     setInputs({ symbol: "", waehrung: "EUR", kontostand: String(Math.round(portfolio.kapital * 100) / 100), risikoPct: "1", wechselkurs: "", einstieg: "", stopLoss: "", ziel: "" });
     setAddInputs({ stueckzahl: "", kaufkurs: "", datum: new Date().toISOString().split("T")[0] });
     setFxDate("");
+    resetAutoScores();
   };
 
   // ── Trade-Übernahme (Transaktionsformat + Nachkauf) ──
@@ -891,6 +917,93 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
                   </div>
                 ))}
               </div>
+
+              {/* ── Auto-Fill Button ── */}
+              <div style={{ marginTop: 16 }}>
+                <button
+                  onClick={() => computeAutoScores(inputs.symbol, inputs.waehrung, einstieg)}
+                  disabled={autoLoading || !inputs.symbol.trim()}
+                  style={{
+                    width: "100%", padding: "14px 20px", borderRadius: 12, cursor: autoLoading ? "wait" : "pointer",
+                    background: autoScores
+                      ? `linear-gradient(135deg, ${C.green}20, ${C.green}08)`
+                      : `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`,
+                    color: autoScores ? C.green : "#fff",
+                    fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                    transition: "all 0.3s", opacity: autoLoading ? 0.7 : 1,
+                    border: autoScores ? `1px solid ${C.green}30` : "none",
+                  }}
+                >
+                  {autoLoading ? (
+                    <>
+                      <div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                      Analysiere Marktdaten fuer {inputs.symbol.toUpperCase()}...
+                    </>
+                  ) : autoScores ? (
+                    <>
+                      <CheckCircle size={16} />
+                      Auto-Analyse abgeschlossen — erneut laden?
+                    </>
+                  ) : (
+                    <>
+                      <Zap size={16} />
+                      Auto-Fill starten
+                    </>
+                  )}
+                </button>
+                <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+
+                {/* Auto-Score Ergebnis-Banner */}
+                {autoScores && dataTimestamp && (
+                  <div style={{
+                    marginTop: 10, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                    background: staleData ? `${C.yellow}08` : `${C.green}08`,
+                    border: `1px solid ${staleData ? C.yellow : C.green}20`,
+                  }}>
+                    {staleData ? <WifiOff size={14} color={C.yellow} /> : <Wifi size={14} color={C.green} />}
+                    <span style={{ fontSize: 12, color: staleData ? C.yellow : C.green, fontWeight: 600 }}>
+                      {staleData ? "Offline-Daten" : "Live-Daten"} · {dataTimestamp.toLocaleTimeString("de-DE")}
+                    </span>
+                    {marketData && (
+                      <span style={{ fontSize: 11, color: C.textDim, marginLeft: "auto" }}>
+                        {marketData.candles} Kerzen · Letzter Kurs: {marketData.lastPrice?.toFixed(2)} {marketData.currency}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Auto-Score Fehler */}
+                {autoError && (
+                  <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", gap: 8, background: `${C.red}08`, border: `1px solid ${C.red}20` }}>
+                    <AlertTriangle size={14} color={C.red} />
+                    <span style={{ fontSize: 12, color: C.red }}>{autoError}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Finviz Chart ── */}
+              {inputs.symbol.trim() && isFinvizAvailable(inputs.symbol) && (
+                <div style={{ marginTop: 16, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 11, color: C.textDim, padding: "6px 12px", background: "rgba(10,13,17,0.6)", display: "flex", alignItems: "center", gap: 6 }}>
+                    <BarChart2 size={12} />
+                    Finviz Daily Chart — {inputs.symbol.toUpperCase()}
+                  </div>
+                  <img
+                    src={getFinvizChartUrl(inputs.symbol)}
+                    alt={`Chart ${inputs.symbol}`}
+                    style={{ width: "100%", display: "block", background: "#fff" }}
+                    onError={(e) => { e.target.style.display = "none"; e.target.previousSibling && (e.target.previousSibling.style.display = "none"); }}
+                  />
+                </div>
+              )}
+              {inputs.symbol.trim() && !isFinvizAvailable(inputs.symbol) && (
+                <div style={{ marginTop: 16, padding: "10px 14px", borderRadius: 10, background: `${C.accent}08`, border: `1px solid ${C.accent}15` }}>
+                  <span style={{ fontSize: 11, color: C.textDim }}>
+                    <BarChart2 size={12} style={{ verticalAlign: "middle", marginRight: 6 }} />
+                    Finviz-Chart fuer EU-Aktien nicht verfuegbar — nutze boerse.de oder TradingView fuer {inputs.symbol.toUpperCase()}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </GlassCard>
@@ -925,6 +1038,28 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
             <div style={{ fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 6 }}>{currentQ.question}</div>
             <div style={{ fontSize: 13, color: C.textDim, lineHeight: 1.6 }}>{currentQ.hint}</div>
           </div>
+
+          {/* ── Auto-Score Info-Leiste ── */}
+          {autoScores?.[currentQ.id] && (
+            <div style={{
+              margin: "12px 0 4px", padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+              background: manualOverrides[currentQ.id] ? `${C.accent}06` : `${C.blue}08`,
+              border: `1px solid ${manualOverrides[currentQ.id] ? C.accent : C.blue}20`,
+            }}>
+              <Zap size={13} color={manualOverrides[currentQ.id] ? C.accent : C.blue} />
+              <span style={{ fontSize: 12, color: manualOverrides[currentQ.id] ? C.accent : C.blue, fontWeight: 600 }}>
+                {manualOverrides[currentQ.id] ? "Manuell ueberschrieben" : "Auto-Analyse"}
+              </span>
+              <span style={{ fontSize: 11, color: C.textMuted }}>
+                {autoScores[currentQ.id].detail}
+              </span>
+              {autoScores[currentQ.id].confidence > 0 && (
+                <span style={{ fontSize: 10, color: C.textDim, marginLeft: "auto", padding: "2px 8px", borderRadius: 6, background: "rgba(10,13,17,0.4)" }}>
+                  {Math.round(autoScores[currentQ.id].confidence * 100)}% Konfidenz
+                </span>
+              )}
+            </div>
+          )}
 
           {currentQ.patternReference && (
             <div style={{ margin: "16px 0 6px", padding: 16, borderRadius: 12, background: "rgba(10,13,17,0.5)", border: `1px solid ${C.border}` }}>
@@ -984,12 +1119,19 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
                       <div style={{ fontSize: isMobile ? 14 : 15, fontWeight: 600, color: selected ? C.text : C.textMuted, marginBottom: 2 }}>{opt.label}</div>
                       <div style={{ fontSize: 12, color: C.textDim }}>{opt.desc}</div>
                     </div>
-                    <div style={{
-                      padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700,
-                      color: opt.score >= 0.7 ? C.green : opt.score >= 0.4 ? C.orange : C.textDim,
-                      background: `${opt.score >= 0.7 ? C.green : opt.score >= 0.4 ? C.orange : C.textDim}10`,
-                    }}>
-                      +{displayScore}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {autoScores?.[currentQ.id]?.optionIndex === i && !manualOverrides[currentQ.id] && (
+                        <div style={{ padding: "3px 7px", borderRadius: 6, fontSize: 9, fontWeight: 700, color: C.blue, background: `${C.blue}15`, border: `1px solid ${C.blue}25`, letterSpacing: "0.05em" }}>
+                          AUTO
+                        </div>
+                      )}
+                      <div style={{
+                        padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                        color: opt.score >= 0.7 ? C.green : opt.score >= 0.4 ? C.orange : C.textDim,
+                        background: `${opt.score >= 0.7 ? C.green : opt.score >= 0.4 ? C.orange : C.textDim}10`,
+                      }}>
+                        +{displayScore}
+                      </div>
                     </div>
                   </div>
                 </div>
