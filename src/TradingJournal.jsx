@@ -1822,7 +1822,7 @@ export default function TradingJournal() {
       {/* Mobile Menu Overlay */}
       {isMobile && menuOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }} onClick={() => setMenuOpen(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ width: 260, height: "100%", background: "linear-gradient(180deg, rgba(20,24,32,0.99), rgba(11,14,17,0.99))", padding: "24px 16px", display: "flex", flexDirection: "column" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 260, height: "100%", background: "linear-gradient(180deg, rgba(20,24,32,0.99), rgba(11,14,17,0.99))", padding: "24px 16px", paddingTop: "calc(env(safe-area-inset-top, 0px) + 24px)", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1853,7 +1853,7 @@ export default function TradingJournal() {
 
       {/* Main */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ padding: isMobile ? "14px 16px" : "18px 32px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(20,24,32,0.6)", backdropFilter: "blur(20px)", position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{ padding: isMobile ? "14px 16px" : "18px 32px", paddingTop: isMobile ? "calc(env(safe-area-inset-top, 0px) + 14px)" : "18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(20,24,32,0.6)", backdropFilter: "blur(20px)", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {isMobile && (
               <button onClick={() => setMenuOpen(true)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", padding: 4 }}>
