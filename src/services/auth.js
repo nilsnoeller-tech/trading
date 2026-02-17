@@ -65,6 +65,18 @@ export async function register(username, password) {
   return data;
 }
 
+export async function changePassword(currentPassword, newPassword) {
+  const resp = await authFetch(`${PROXY_BASE}/api/auth/change-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || "Passwort-Aenderung fehlgeschlagen");
+  if (data.token) setToken(data.token);
+  return data;
+}
+
 // ─── Authenticated Fetch Wrapper ───
 
 export async function authFetch(url, options = {}) {

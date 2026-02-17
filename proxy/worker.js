@@ -345,6 +345,33 @@ async function handleAuthRoutes(url, request, env) {
     return jsonResponse({ ok: true, username: payload.sub });
   }
 
+  // POST /api/auth/change-password (requires valid JWT)
+  if (path === "/api/auth/change-password" && request.method === "POST") {
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) return jsonResponse({ error: "Nicht eingeloggt" }, 401);
+    const payload = await verifyJWT(authHeader.slice(7), env.JWT_SECRET);
+    if (!payload) return jsonResponse({ error: "Token ungueltig oder abgelaufen" }, 401);
+
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+    const { currentPassword, newPassword } = body;
+    if (!currentPassword || !newPassword) return jsonResponse({ error: "Aktuelles und neues Passwort erforderlich" }, 400);
+    if (newPassword.length < 6) return jsonResponse({ error: "Neues Passwort: mindestens 6 Zeichen" }, 400);
+
+    const userData = await env.NCAPITAL_KV.get(`user:${payload.sub}`, "json");
+    if (!userData) return jsonResponse({ error: "Benutzer nicht gefunden" }, 404);
+
+    const currentHash = await hashPassword(currentPassword, userData.salt);
+    if (currentHash !== userData.passwordHash) return jsonResponse({ error: "Aktuelles Passwort ist falsch" }, 403);
+
+    const newSalt = base64urlEncode(crypto.getRandomValues(new Uint8Array(16)));
+    const newHash = await hashPassword(newPassword, newSalt);
+    await env.NCAPITAL_KV.put(`user:${payload.sub}`, JSON.stringify({ ...userData, passwordHash: newHash, salt: newSalt, updatedAt: new Date().toISOString() }));
+
+    const token = await createJWT({ sub: payload.sub, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 7 * 86400 }, env.JWT_SECRET);
+    return jsonResponse({ ok: true, message: "Passwort erfolgreich geaendert", token });
+  }
+
   return null;
 }
 

@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2, Eye, Layers, Newspaper, LogOut } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2, Eye, Layers, Newspaper, LogOut, Settings as SettingsIcon, Lock, User } from "lucide-react";
 import Watchlist from "./components/Watchlist";
 import Briefing from "./components/Briefing";
 import LoginPage from "./components/LoginPage";
 import { useAutoScore } from "./hooks/useAutoScore";
 import { getFinvizChartUrl, isFinvizAvailable } from "./services/marketData";
-import { isAuthenticated, getUser, logout as authLogout } from "./services/auth";
+import { isAuthenticated, getUser, logout as authLogout, changePassword } from "./services/auth";
 
 // ─── Color System ───
 const C = {
@@ -1716,6 +1716,144 @@ const TradeLog = ({ tradeList, onUpdateTrade }) => {
 };
 
 // ════════════════════════════════════════════════════════════════
+// ─── SETTINGS PAGE ───
+// ════════════════════════════════════════════════════════════════
+const SettingsPage = () => {
+  const user = getUser();
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(null); // { type: "success"|"error", text }
+
+  const handleChangePw = async (e) => {
+    e.preventDefault();
+    setMessage(null);
+    if (newPw !== confirmPw) { setMessage({ type: "error", text: "Neue Passwoerter stimmen nicht ueberein" }); return; }
+    if (newPw.length < 6) { setMessage({ type: "error", text: "Neues Passwort: mindestens 6 Zeichen" }); return; }
+    if (currentPw === newPw) { setMessage({ type: "error", text: "Neues Passwort muss sich vom aktuellen unterscheiden" }); return; }
+    setLoading(true);
+    try {
+      await changePassword(currentPw, newPw);
+      setMessage({ type: "success", text: "Passwort erfolgreich geaendert" });
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const inputStyle = {
+    width: "100%", padding: "10px 14px", borderRadius: 10,
+    border: `1px solid ${C.border}`, background: C.bg, color: C.text,
+    fontSize: 14, outline: "none", transition: "border-color 0.2s",
+  };
+
+  const PwField = ({ label, value, onChange, show, onToggle, placeholder, autoComplete }) => (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, display: "block", marginBottom: 6 }}>{label}</label>
+      <div style={{ position: "relative" }}>
+        <input type={show ? "text" : "password"} value={value} onChange={e => onChange(e.target.value)}
+          placeholder={placeholder} autoComplete={autoComplete} required style={{ ...inputStyle, paddingRight: 42 }}
+          onFocus={e => e.target.style.borderColor = C.accent} onBlur={e => e.target.style.borderColor = C.border} />
+        <button type="button" onClick={onToggle} style={{
+          position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+          background: "none", border: "none", color: C.textDim, cursor: "pointer", padding: 4,
+        }}>
+          {show ? <XCircle size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 520, margin: "0 auto" }}>
+      {/* User Info */}
+      <GlassCard>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "4px 0" }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12,
+            background: `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: `0 4px 12px ${C.accent}30`,
+          }}>
+            <User size={22} color="#fff" />
+          </div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{user?.username || "–"}</div>
+            <div style={{ fontSize: 12, color: C.textDim }}>Angemeldet</div>
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* Change Password */}
+      <GlassCard style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+          <Lock size={18} color={C.accent} />
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>Passwort aendern</div>
+        </div>
+
+        <form onSubmit={handleChangePw}>
+          <PwField label="Aktuelles Passwort" value={currentPw} onChange={setCurrentPw}
+            show={showCurrent} onToggle={() => setShowCurrent(!showCurrent)}
+            placeholder="Aktuelles Passwort" autoComplete="current-password" />
+
+          <PwField label="Neues Passwort" value={newPw} onChange={setNewPw}
+            show={showNew} onToggle={() => setShowNew(!showNew)}
+            placeholder="Mind. 6 Zeichen" autoComplete="new-password" />
+
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, display: "block", marginBottom: 6 }}>Neues Passwort bestaetigen</label>
+            <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
+              placeholder="Neues Passwort wiederholen" autoComplete="new-password" required
+              style={{
+                ...inputStyle,
+                borderColor: confirmPw && confirmPw !== newPw ? C.red : C.border,
+              }}
+              onFocus={e => e.target.style.borderColor = confirmPw && confirmPw !== newPw ? C.red : C.accent}
+              onBlur={e => e.target.style.borderColor = confirmPw && confirmPw !== newPw ? C.red : C.border} />
+            {confirmPw && confirmPw !== newPw && (
+              <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Passwoerter stimmen nicht ueberein</div>
+            )}
+          </div>
+
+          {message && (
+            <div style={{
+              padding: "10px 14px", borderRadius: 10, marginBottom: 16,
+              background: message.type === "success" ? `${C.green}12` : `${C.red}12`,
+              border: `1px solid ${message.type === "success" ? `${C.green}30` : `${C.red}30`}`,
+              fontSize: 13, color: message.type === "success" ? C.green : C.red,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              {message.type === "success" ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
+              {message.text}
+            </div>
+          )}
+
+          <button type="submit" disabled={loading || !currentPw || !newPw || !confirmPw || newPw !== confirmPw} style={{
+            width: "100%", padding: "11px 0", borderRadius: 10, border: "none",
+            background: (loading || !currentPw || !newPw || !confirmPw || newPw !== confirmPw)
+              ? C.textDim : `linear-gradient(135deg, ${C.accent}, ${C.accentLight})`,
+            color: "#fff", fontSize: 14, fontWeight: 700,
+            cursor: (loading || !currentPw || !newPw || !confirmPw || newPw !== confirmPw) ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            boxShadow: (loading || !currentPw || !newPw || !confirmPw || newPw !== confirmPw) ? "none" : `0 4px 16px ${C.accent}40`,
+            transition: "all 0.2s",
+          }}>
+            {loading ? (
+              <div style={{ width: 18, height: 18, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+            ) : (
+              <><Lock size={15} /> Passwort aendern</>
+            )}
+          </button>
+        </form>
+      </GlassCard>
+    </div>
+  );
+};
 
 // ════════════════════════════════════════════════════════════════
 // ─── MAIN APP ───
@@ -1775,6 +1913,7 @@ export default function TradingJournal() {
     check: { label: "Trade Check", icon: Calculator, sub: "Bewerte neue Trade-Setups" },
     trades: { label: "Trade Log", icon: BookOpen, sub: "Alle Trades im Detail" },
     dashboard: { label: "Dashboard", icon: LayoutDashboard, sub: "Übersicht deiner Performance" },
+    settings: { label: "Einstellungen", icon: SettingsIcon, sub: "Konto & Passwort verwalten" },
   };
 
   const renderPage = () => {
@@ -1784,6 +1923,7 @@ export default function TradingJournal() {
       case "trades": return <TradeLog tradeList={tradeList} onUpdateTrade={updateTrade} />;
       case "dashboard": return <Dashboard portfolio={portfolio} />;
       case "watchlist": return <Watchlist onNavigate={navigate} />;
+      case "settings": return <SettingsPage />;
       default: return null;
     }
   };
