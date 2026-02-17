@@ -232,6 +232,67 @@ function ResultsTable({ results, isMobile, sortBy, setSortBy, expandedRow, setEx
   );
 }
 
+// ─── Breadth Badge (hover/click tooltip for index market breadth) ───
+function BreadthBadge({ label, data }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  if (!data || !data.total) return <span>{label} · </span>;
+
+  const posPct = Math.round((data.positive / data.total) * 100);
+  const negPct = Math.round((data.negative / data.total) * 100);
+  const barColor = posPct > 60 ? C.green : posPct < 40 ? C.red : C.yellow;
+
+  return (
+    <span ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}
+      onClick={() => setOpen(!open)} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <span>{label}</span>
+      {/* Mini breadth bar */}
+      <span style={{ display: "inline-block", width: 28, height: 4, borderRadius: 2, background: C.red, overflow: "hidden", verticalAlign: "middle" }}>
+        <span style={{ display: "block", height: "100%", width: `${posPct}%`, background: C.green, borderRadius: 2 }} />
+      </span>
+      <span style={{ color: C.textDim }}> · </span>
+      {/* Tooltip */}
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, marginTop: 6, zIndex: 999,
+          background: "#1a1f2b", border: `1px solid ${C.borderLight}`, borderRadius: 10,
+          padding: 12, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+        }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>
+            Marktbreite {label}
+          </div>
+          {/* Visual bar */}
+          <div style={{ display: "flex", height: 10, borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+            <div style={{ width: `${posPct}%`, background: C.green, transition: "width 0.3s" }} />
+            {data.unchanged > 0 && <div style={{ width: `${Math.round((data.unchanged / data.total) * 100)}%`, background: C.textDim, transition: "width 0.3s" }} />}
+            <div style={{ width: `${negPct}%`, background: C.red, transition: "width 0.3s" }} />
+          </div>
+          {/* Stats */}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
+            <span style={{ color: C.green, fontWeight: 700 }}>{"\u25B2"} {data.positive} ({posPct}%)</span>
+            {data.unchanged > 0 && <span style={{ color: C.textDim }}>{"\u25AC"} {data.unchanged}</span>}
+            <span style={{ color: C.red, fontWeight: 700 }}>{"\u25BC"} {data.negative} ({negPct}%)</span>
+          </div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, borderTop: `1px solid ${C.border}`, paddingTop: 4 }}>
+            {data.total} Werte gescannt
+            <span style={{ marginLeft: 8, color: data.avgChange >= 0 ? C.green : C.red, fontWeight: 600 }}>
+              {"\u00D8"} {data.avgChange >= 0 ? "+" : ""}{data.avgChange.toFixed(2)}%
+            </span>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 // ─── Index Scanner Tab ───
 function IndexScanner({ isMobile, onNavigate }) {
   const [results, setResults] = useState([]);
@@ -317,14 +378,14 @@ function IndexScanner({ isMobile, onNavigate }) {
               <Globe size={isMobile ? 18 : 22} color={C.accent} />
               Index Scanner
             </div>
-            <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
               {status ? (
-                status.scanMode === "dax-only" ? `${status.dax40Count} DAX · ` :
-                status.scanMode === "sp500-only" ? `${status.sp500Count} S&P 500 · ` :
-                status.scanMode === "both" ? `${status.sp500Count} S&P 500 + ${status.dax40Count} DAX · ` :
-                status.scanMode === "closed" ? "Markt geschlossen · " : ""
-              ) : ""}
-              {results.length > 0 ? `${results.length} Setups gefunden` : loading ? "Lade..." : "Warte auf ersten Scan-Zyklus..."}
+                status.scanMode === "dax-only" ? <BreadthBadge label={`${status.dax40Count} DAX`} data={status.stats?.breadth?.dax} /> :
+                status.scanMode === "sp500-only" ? <BreadthBadge label={`${status.sp500Count} S&P 500`} data={status.stats?.breadth?.sp500} /> :
+                status.scanMode === "both" ? <><BreadthBadge label={`${status.sp500Count} S&P 500`} data={status.stats?.breadth?.sp500} /><span style={{ color: C.textDim }}> + </span><BreadthBadge label={`${status.dax40Count} DAX`} data={status.stats?.breadth?.dax} /><span style={{ color: C.textDim }}> · </span></> :
+                status.scanMode === "closed" ? <span>Markt geschlossen · </span> : null
+              ) : null}
+              <span>{results.length > 0 ? `${results.length} Setups gefunden` : loading ? "Lade..." : "Warte auf ersten Scan-Zyklus..."}</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

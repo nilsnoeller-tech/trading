@@ -291,8 +291,8 @@ function computeSwingScore(candles) {
   const rsiValues = calcRSI(closes, 14);
   const rsi = rsiValues.length > 0 ? rsiValues[rsiValues.length - 1] : 50;
   let rsiScore;
-  if (rsi >= 30 && rsi <= 45) { rsiScore = 100; signals.push(`RSI ${rsi.toFixed(0)} (Kaufzone)`); }
-  else if (rsi > 45 && rsi <= 55) rsiScore = 60;
+  if (rsi >= 30 && rsi <= 40) { rsiScore = 100; signals.push(`RSI ${rsi.toFixed(0)} (Kaufzone)`); }
+  else if (rsi > 40 && rsi <= 55) rsiScore = 50;
   else if (rsi < 30) { rsiScore = 40; signals.push(`RSI ${rsi.toFixed(0)} (ueberverkauft)`); }
   else if (rsi > 70) { rsiScore = 10; signals.push(`RSI ${rsi.toFixed(0)} (ueberkauft)`); }
   else rsiScore = 20;
@@ -733,12 +733,24 @@ async function mergeAndNotify(env, config, totalChunks) {
     .filter((r) => r.swing.total >= threshold)
     .sort((a, b) => b.swing.total - a.swing.total);
 
+  // Compute market breadth per index
+  const daxAll = allResults.filter(r => r.symbol.endsWith(".DE"));
+  const spAll = allResults.filter(r => !r.symbol.endsWith(".DE"));
+  const breadth = (arr) => {
+    const pos = arr.filter(r => r.change > 0).length;
+    const neg = arr.filter(r => r.change < 0).length;
+    const unch = arr.length - pos - neg;
+    const avgChg = arr.length > 0 ? arr.reduce((s, r) => s + r.change, 0) / arr.length : 0;
+    return { total: arr.length, positive: pos, negative: neg, unchanged: unch, avgChange: Math.round(avgChg * 100) / 100 };
+  };
+
   // Save merged results + stats in one combined write (saves 1 KV write)
   const stats = {
     totalScanned: allResults.length,
     hits: filtered.length,
     errors: allResults.filter((r) => r.swing.error || r.intraday.error).length,
     timestamp: new Date().toISOString(),
+    breadth: { dax: breadth(daxAll), sp500: breadth(spAll) },
   };
   await Promise.all([
     env.NCAPITAL_KV.put("scan:results", JSON.stringify(filtered), { expirationTtl: 7200 }),
