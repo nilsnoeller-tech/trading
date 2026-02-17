@@ -47,7 +47,7 @@ const SP500_SYMBOLS = [
 
 const DAX40_SYMBOLS = [
   "ADS.DE","AIR.DE","ALV.DE","BAS.DE","BAYN.DE","BEI.DE","BMW.DE","BNR.DE","CBK.DE","CON.DE",
-  "1COV.DE","DB1.DE","DBK.DE","DHL.DE","DTE.DE","DTG.DE","ENR.DE","FRE.DE","G1A.DE","HEI.DE",
+  "DB1.DE","DBK.DE","DHL.DE","DTE.DE","DTG.DE","ENR.DE","FRE.DE","G1A.DE","HEI.DE",
   "HEN3.DE","HNR1.DE","IFX.DE","MBG.DE","MRK.DE","MTX.DE","MUV2.DE","P911.DE","PAH3.DE","PUM.DE",
   "QIA.DE","RHM.DE","RWE.DE","SAP.DE","SHL.DE","SIE.DE","SRT3.DE","VOW3.DE","ZAL.DE",
 ];
@@ -55,8 +55,8 @@ const DAX40_SYMBOLS = [
 const ALL_INDEX_SYMBOLS = [...SP500_SYMBOLS, ...DAX40_SYMBOLS];
 
 const SCAN_DEFAULTS = {
-  chunkSize: 40,         // Symbols per chunk (40 × 2 calls = 80 fetches, safe within 30s)
-  parallelBatch: 8,      // Parallel fetches per batch
+  chunkSize: 24,         // Symbols per chunk (24 × 2 calls = 48 fetches, under 50 subrequest limit)
+  parallelBatch: 5,      // Parallel fetches per batch
   threshold: 60,         // Minimum combined score to show in results
   notifyThreshold: 70,   // Minimum combined score to trigger push notification
 };
@@ -80,11 +80,14 @@ const USER_AGENT =
 
 // ─── Yahoo Finance Fetch ───
 
-async function fetchYahooJSON(symbol, params, timeoutMs = 8000) {
+async function fetchYahooJSON(symbol, params, timeoutMs = 12000, singleHost = false) {
   const searchParams = new URLSearchParams(params);
   let lastError = null;
 
-  for (const host of YAHOO_HOSTS) {
+  // In scan mode (singleHost=true): use only 1 host to stay within subrequest limits
+  const hosts = singleHost ? [YAHOO_HOSTS[Math.random() < 0.5 ? 0 : 1]] : YAHOO_HOSTS;
+
+  for (const host of hosts) {
     try {
       const url = `https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?${searchParams.toString()}`;
       const controller = new AbortController();
@@ -395,9 +398,10 @@ function parseYahooCandles(json) {
 // ─── Server-Side Scanner ───
 
 async function scanSymbolServer(symbol) {
+  // singleHost=true to stay within Cloudflare subrequest limits (50 on free plan)
   const [dailyJson, intradayJson] = await Promise.all([
-    fetchYahooJSON(symbol, { range: "1y", interval: "1d", includeAdjustedClose: "true" }),
-    fetchYahooJSON(symbol, { range: "5d", interval: "15m", includeAdjustedClose: "true" }),
+    fetchYahooJSON(symbol, { range: "1y", interval: "1d", includeAdjustedClose: "true" }, 12000, true),
+    fetchYahooJSON(symbol, { range: "5d", interval: "15m", includeAdjustedClose: "true" }, 12000, true),
   ]);
 
   const dailyData = !dailyJson.error ? parseYahooCandles(dailyJson) : null;
@@ -586,7 +590,7 @@ async function runChunkedScan(env) {
   const results = [];
   const scanStart = Date.now();
   for (let i = 0; i < chunkSymbols.length; i += parallelBatch) {
-    if (Date.now() - scanStart > 22000) {
+    if (Date.now() - scanStart > 26000) {
       console.log(`[Scan] Time limit approaching after ${results.length} symbols. Saving partial results.`);
       break;
     }
@@ -890,6 +894,21 @@ async function handleScanRoutes(url, request, env) {
     };
     await env.NCAPITAL_KV.put("scan:config", JSON.stringify(updated));
     return jsonResponse({ ok: true, config: updated });
+  }
+
+  // GET /api/scan/debug — raw chunk data for debugging
+  if (path === "/api/scan/debug" && request.method === "GET") {
+    const chunk = await env.NCAPITAL_KV.get("scan:chunk:0", "json");
+    if (!chunk) return jsonResponse({ error: "No chunk data" }, 404);
+    const summary = chunk.map((r) => ({
+      symbol: r.symbol,
+      price: r.price,
+      swing: r.swing.total,
+      intraday: r.intraday.total,
+      swingErr: r.swing.error || null,
+      intradayErr: r.intraday.error || null,
+    }));
+    return jsonResponse({ count: chunk.length, errors: summary.filter((s) => s.swingErr || s.intradayErr).length, data: summary });
   }
 
   return null;
