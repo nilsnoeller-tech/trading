@@ -89,29 +89,28 @@ function ResultsTable({ results, isMobile, sortBy, setSortBy, expandedRow, setEx
       <div style={{
         display: "grid",
         gridTemplateColumns: isMobile
-          ? (showCombined ? "1fr 50px 50px 50px" : "1fr 60px 60px")
-          : (showCombined ? "120px 1fr 90px 70px 60px 60px 60px 120px" : "140px 1fr 90px 80px 70px 70px 120px"),
-        gap: 0, padding: "12px 16px", borderBottom: `1px solid ${C.border}`,
+          ? (showCombined ? "1fr 44px 44px 44px" : "1fr 55px 55px")
+          : (showCombined ? "100px 90px 70px 70px 75px 75px 1fr" : "140px 90px 80px 70px 70px 1fr"),
+        gap: 8, padding: "12px 16px", borderBottom: `1px solid ${C.border}`,
         background: "rgba(10,13,17,0.3)", fontSize: 11, fontWeight: 700, color: C.textDim,
         textTransform: "uppercase", letterSpacing: "0.05em",
       }}>
         <div>Symbol</div>
-        {!isMobile && <div>Name</div>}
         {!isMobile && <div style={{ textAlign: "right" }}>Kurs</div>}
         {!isMobile && <div style={{ textAlign: "right", cursor: "pointer" }} onClick={() => setSortBy("change")}>
           Chg% {sortBy === "change" ? "▼" : ""}
         </div>}
-        {showCombined && (
-          <div style={{ textAlign: "center", cursor: "pointer" }} onClick={() => setSortBy("combined")}>
-            {isMobile ? "Comb" : "Combined"} {sortBy === "combined" ? "▼" : ""}
-          </div>
-        )}
         <div style={{ textAlign: "center", cursor: "pointer" }} onClick={() => setSortBy("swing")}>
           {isMobile ? "Sw" : "Swing"} {sortBy === "swing" ? "▼" : ""}
         </div>
         <div style={{ textAlign: "center", cursor: "pointer" }} onClick={() => setSortBy("intraday")}>
           {isMobile ? "Intra" : "Intraday"} {sortBy === "intraday" ? "▼" : ""}
         </div>
+        {showCombined && (
+          <div style={{ textAlign: "center", cursor: "pointer" }} onClick={() => setSortBy("combined")}>
+            {isMobile ? "Comb" : "Combined"} {sortBy === "combined" ? "▼" : ""}
+          </div>
+        )}
         {!isMobile && <div>Signal</div>}
       </div>
 
@@ -128,9 +127,9 @@ function ResultsTable({ results, isMobile, sortBy, setSortBy, expandedRow, setEx
               style={{
                 display: "grid",
                 gridTemplateColumns: isMobile
-                  ? (showCombined ? "1fr 50px 50px 50px" : "1fr 60px 60px")
-                  : (showCombined ? "120px 1fr 90px 70px 60px 60px 60px 120px" : "140px 1fr 90px 80px 70px 70px 120px"),
-                gap: 0, padding: "12px 16px", cursor: "pointer",
+                  ? (showCombined ? "1fr 44px 44px 44px" : "1fr 55px 55px")
+                  : (showCombined ? "100px 90px 70px 70px 75px 75px 1fr" : "140px 90px 80px 70px 70px 1fr"),
+                gap: 8, padding: "12px 16px", cursor: "pointer",
                 borderBottom: `1px solid ${C.border}`,
                 background: isExpanded ? `${C.accent}05` : idx % 2 === 0 ? "transparent" : "rgba(10,13,17,0.15)",
                 borderLeft: `3px solid ${rowBorder}`,
@@ -146,19 +145,18 @@ function ResultsTable({ results, isMobile, sortBy, setSortBy, expandedRow, setEx
                   </span>}
                 </div>}
               </div>
-              {!isMobile && <div style={{ fontSize: 12, color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>}
               {!isMobile && <div style={{ textAlign: "right", fontSize: 13, fontWeight: 600, color: C.text }}>{r.price > 0 ? r.price.toFixed(2) : "—"}</div>}
               {!isMobile && (
                 <div style={{ textAlign: "right", fontSize: 12, fontWeight: 600, color: r.change >= 0 ? C.green : C.red }}>
                   {r.change >= 0 ? "+" : ""}{r.change.toFixed(2)}%
                 </div>
               )}
-              {showCombined && <div style={{ textAlign: "center" }}><ScoreBadge score={cs} size="small" /></div>}
               <div style={{ textAlign: "center" }}><ScoreBadge score={r.swing.total} size="small" /></div>
               <div style={{ textAlign: "center" }}><ScoreBadge score={r.intraday.total} size="small" /></div>
+              {showCombined && <div style={{ textAlign: "center" }}><ScoreBadge score={cs} size="small" /></div>}
               {!isMobile && (
                 <div style={{ fontSize: 11, color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {[...r.swing.signals, ...r.intraday.signals].slice(0, 1).join(", ") || "—"}
+                  {[...r.swing.signals, ...r.intraday.signals].slice(0, 2).join(", ") || "—"}
                 </div>
               )}
             </div>
