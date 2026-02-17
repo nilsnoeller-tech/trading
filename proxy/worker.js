@@ -147,8 +147,8 @@ const RECURRING_EVENTS_2026 = [
 const SCAN_DEFAULTS = {
   chunkSize: 24,         // Symbols per chunk (24 × 2 calls = 48 fetches, under 50 subrequest limit)
   parallelBatch: 5,      // Parallel fetches per batch
-  threshold: 60,         // Minimum combined score to show in results
-  notifyThreshold: 70,   // Minimum combined score to trigger push notification
+  threshold: 75,         // Minimum combined score to show in results
+  notifyThreshold: 80,   // Minimum combined score to trigger push notification
 };
 
 // ─── Constants & CORS ───
@@ -831,6 +831,42 @@ async function fetchMacroData() {
   return results;
 }
 
+async function fetchVixHistory() {
+  try {
+    const json = await fetchYahooJSON("^VIX", { range: "ytd", interval: "1d", includeAdjustedClose: "true" }, 10000, true);
+    if (json.error) return null;
+    const parsed = parseYahooCandles(json);
+    if (!parsed || parsed.candles.length < 2) return null;
+    const candles = parsed.candles;
+    const current = candles[candles.length - 1].close;
+    const ytdStart = candles[0].close;
+    // 1 week ago (~5 trading days)
+    const w1Idx = Math.max(0, candles.length - 6);
+    const weekAgo = candles[w1Idx].close;
+    // 1 month ago (~22 trading days)
+    const m1Idx = Math.max(0, candles.length - 23);
+    const monthAgo = candles[m1Idx].close;
+    // Compute averages
+    const allCloses = candles.map(c => c.close);
+    const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const ytdAvg = avg(allCloses);
+    const monthAvg = avg(allCloses.slice(m1Idx));
+    const weekAvg = avg(allCloses.slice(w1Idx));
+    // Min/Max
+    const ytdHigh = Math.max(...allCloses);
+    const ytdLow = Math.min(...allCloses);
+    return {
+      current,
+      week: { close: weekAgo, change: ((current - weekAgo) / weekAgo) * 100, avg: weekAvg },
+      month: { close: monthAgo, change: ((current - monthAgo) / monthAgo) * 100, avg: monthAvg },
+      ytd: { open: ytdStart, change: ((current - ytdStart) / ytdStart) * 100, avg: ytdAvg, high: ytdHigh, low: ytdLow },
+    };
+  } catch (e) {
+    console.error("[VIX History]", e.message);
+    return null;
+  }
+}
+
 function computeIntermarketSignals(macro) {
   const signals = [];
   const vix = macro["^VIX"];
@@ -954,8 +990,8 @@ function getSeasonalContext() {
 async function generateBriefing(env, type) {
   const startTime = Date.now();
 
-  // 1. Fetch macro data (12 symbols)
-  const macro = await fetchMacroData();
+  // 1. Fetch macro data (12 symbols) + VIX history in parallel
+  const [macro, vixHistory] = await Promise.all([fetchMacroData(), fetchVixHistory()]);
 
   // 2. Read latest scan results (1 KV read)
   const scanResults = (await env.NCAPITAL_KV.get("scan:results", "json")) || [];
@@ -1005,6 +1041,7 @@ async function generateBriefing(env, type) {
     })),
     tradeSetups,
     futures: { es: macro["ES=F"] || null, nq: macro["NQ=F"] || null },
+    vixHistory: vixHistory || null,
   };
 
   // 7. Store in KV (TTL 12h)

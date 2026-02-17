@@ -203,7 +203,7 @@ export default function Briefing({ onNavigate }) {
           <SeasonalSection seasonal={briefing.seasonalContext} isMobile={isMobile} />
 
           {/* ── Makro-Ueberblick ── */}
-          <MacroSection macro={briefing.macroOverview} isMobile={isMobile} />
+          <MacroSection macro={briefing.macroOverview} vixHistory={briefing.vixHistory} isMobile={isMobile} />
 
           {/* ── Intermarket-Signale ── */}
           <IntermarketSection signals={briefing.intermarketSignals} isMobile={isMobile} />
@@ -324,7 +324,122 @@ function SeasonalSection({ seasonal, isMobile }) {
 }
 
 // ─── Macro Section ───
-function MacroSection({ macro, isMobile }) {
+// VIX classification helper
+function getVixLevel(price) {
+  if (price < 12) return { label: "Sehr niedrig", color: C.green, desc: "Extreme Sorglosigkeit, oft vor Korrekturen" };
+  if (price < 16) return { label: "Niedrig", color: C.green, desc: "Ruhiger Markt, geringes Absicherungsbedürfnis" };
+  if (price < 20) return { label: "Normal", color: C.yellow, desc: "Markt im Gleichgewicht, moderate Schwankungen" };
+  if (price < 25) return { label: "Erhöht", color: C.orange, desc: "Steigende Unsicherheit, Absicherung nimmt zu" };
+  if (price < 30) return { label: "Hoch", color: C.orange, desc: "Deutliche Angst im Markt, erhöhte Volatilitaet" };
+  if (price < 40) return { label: "Sehr hoch", color: C.red, desc: "Panik-Modus, starke Schwankungen erwartet" };
+  return { label: "Extrem", color: C.red, desc: "Crash-Niveau, historisch seltene Extremwerte" };
+}
+
+const VIX_SCALE = [
+  { max: 12, label: "<12 Sehr niedrig", color: C.green },
+  { max: 16, label: "12-16 Niedrig", color: C.green },
+  { max: 20, label: "16-20 Normal", color: C.yellow },
+  { max: 25, label: "20-25 Erhöht", color: C.orange },
+  { max: 30, label: "25-30 Hoch", color: C.orange },
+  { max: 40, label: "30-40 Sehr hoch", color: C.red },
+  { max: 100, label: ">40 Extrem", color: C.red },
+];
+
+function VixTooltip({ price, vixHistory, isMobile }) {
+  const [show, setShow] = useState(false);
+  const level = getVixLevel(price);
+
+  return (
+    <div
+      style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onClick={() => setShow(s => !s)}
+    >
+      <span style={{
+        fontSize: 10, fontWeight: 700, color: level.color, background: `${level.color}20`,
+        borderRadius: 4, padding: "1px 6px", cursor: "pointer", borderBottom: `1px dashed ${level.color}60`,
+      }}>
+        {level.label}
+      </span>
+
+      {show && (
+        <div style={{
+          position: "absolute", top: "100%", left: isMobile ? -60 : 0, zIndex: 100, marginTop: 6,
+          background: C.card, border: `1px solid ${C.borderLight}`, borderRadius: 12, padding: 14,
+          width: isMobile ? 280 : 300, boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        }}>
+          {/* Current classification */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: level.color, marginBottom: 4 }}>
+              VIX {price?.toFixed(2)} — {level.label}
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>{level.desc}</div>
+          </div>
+
+          {/* Scale */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", marginBottom: 6 }}>Einordnung</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {VIX_SCALE.map((s, i) => {
+                const active = (i === 0 && price < s.max) ||
+                  (i > 0 && price >= VIX_SCALE[i - 1].max && price < s.max) ||
+                  (i === VIX_SCALE.length - 1 && price >= VIX_SCALE[i - 1].max);
+                return (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", gap: 6, padding: "2px 6px", borderRadius: 4,
+                    background: active ? `${s.color}20` : "transparent",
+                    border: active ? `1px solid ${s.color}40` : "1px solid transparent",
+                  }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, opacity: active ? 1 : 0.4 }} />
+                    <span style={{ fontSize: 11, color: active ? s.color : C.textDim, fontWeight: active ? 700 : 400 }}>
+                      {s.label}
+                    </span>
+                    {active && <span style={{ fontSize: 10, color: s.color, marginLeft: "auto" }}>{"\u25C0"}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Historical comparison */}
+          {vixHistory && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", marginBottom: 6 }}>Historischer Vergleich</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                {[
+                  { label: "1 Woche", val: vixHistory.week?.close, chg: vixHistory.week?.change, avg: vixHistory.week?.avg },
+                  { label: "1 Monat", val: vixHistory.month?.close, chg: vixHistory.month?.change, avg: vixHistory.month?.avg },
+                  { label: "YTD", val: vixHistory.ytd?.open, chg: vixHistory.ytd?.change, avg: vixHistory.ytd?.avg },
+                ].map((h, i) => (
+                  <div key={i} style={{ background: C.bg, borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: C.textDim, marginBottom: 3 }}>{h.label}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: h.chg > 0 ? C.red : C.green, fontFamily: "monospace" }}>
+                      {h.chg != null ? `${h.chg > 0 ? "+" : ""}${h.chg.toFixed(1)}%` : "-"}
+                    </div>
+                    {h.avg != null && (
+                      <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
+                        {"\u00D8"} {h.avg.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {vixHistory.ytd && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: C.textDim }}>
+                  <span>YTD Low: <span style={{ color: C.green, fontWeight: 600 }}>{vixHistory.ytd.low?.toFixed(1)}</span></span>
+                  <span>YTD High: <span style={{ color: C.red, fontWeight: 600 }}>{vixHistory.ytd.high?.toFixed(1)}</span></span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MacroSection({ macro, vixHistory, isMobile }) {
   if (!macro?.length) return null;
 
   // Category display names + icons
@@ -368,7 +483,12 @@ function MacroSection({ macro, isMobile }) {
                 </span>
                 <ChangeDisplay change={item.change} style={{ fontSize: 12 }} />
               </div>
-              {item.trend5d != null && (
+              {isVix && item.price > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <VixTooltip price={item.price} vixHistory={vixHistory} isMobile={isMobile} />
+                </div>
+              )}
+              {!isVix && item.trend5d != null && (
                 <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
                   5d: <span style={{ color: item.trend5d > 0 ? C.green : item.trend5d < 0 ? C.red : C.textDim }}>{item.trend5d > 0 ? "+" : ""}{item.trend5d.toFixed(1)}%</span>
                 </div>
