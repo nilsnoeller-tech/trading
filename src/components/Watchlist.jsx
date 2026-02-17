@@ -239,7 +239,7 @@ function IndexScanner({ isMobile, onNavigate }) {
   const [results, setResults] = useState([]);
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy] = useState("combined");
+  const [sortBy, setSortBy] = useState("swing");
   const [expandedRow, setExpandedRow] = useState(null);
   const pollRef = useRef(null);
   const statusRef = useRef(null);

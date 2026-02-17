@@ -629,7 +629,7 @@ async function mergeAndNotify(env, config, totalChunks) {
     if (chunk) allResults.push(...chunk);
   }
 
-  // Compute combined score and filter
+  // Filter + sort by SWING score (primary), keep combined for reference
   const threshold = config.threshold || SCAN_DEFAULTS.threshold;
   const notifyThreshold = config.notifyThreshold || SCAN_DEFAULTS.notifyThreshold;
 
@@ -639,8 +639,8 @@ async function mergeAndNotify(env, config, totalChunks) {
   }));
 
   const filtered = scored
-    .filter((r) => r.combinedScore >= threshold)
-    .sort((a, b) => b.combinedScore - a.combinedScore);
+    .filter((r) => r.swing.total >= threshold)
+    .sort((a, b) => b.swing.total - a.swing.total);
 
   // Save merged results (TTL 2h)
   await env.NCAPITAL_KV.put("scan:results", JSON.stringify(filtered), { expirationTtl: 7200 });
@@ -654,13 +654,13 @@ async function mergeAndNotify(env, config, totalChunks) {
   };
   await env.NCAPITAL_KV.put("scan:stats", JSON.stringify(stats));
 
-  console.log(`[Scan] Merged: ${allResults.length} total, ${filtered.length} hits (score >= ${threshold}), ${stats.errors} errors`);
+  console.log(`[Scan] Merged: ${allResults.length} total, ${filtered.length} hits (swing >= ${threshold}), ${stats.errors} errors`);
 
   // Send push notifications for high-score results
   const subscriptions = (await env.NCAPITAL_KV.get("push:subscriptions", "json")) || [];
   if (subscriptions.length === 0) return;
 
-  const notifyResults = filtered.filter((r) => r.combinedScore >= notifyThreshold);
+  const notifyResults = filtered.filter((r) => r.swing.total >= notifyThreshold);
   const notifications = [];
   const validSubs = [...subscriptions];
 
@@ -669,13 +669,10 @@ async function mergeAndNotify(env, config, totalChunks) {
     const cooldown = await env.NCAPITAL_KV.get(cooldownKey);
     if (cooldown) continue;
 
-    const isSwing = r.swing.total > r.intraday.total;
-    const topSignals = isSwing
-      ? r.swing.signals.slice(0, 3).join(" + ")
-      : r.intraday.signals.slice(0, 3).join(" + ");
+    const topSignals = r.swing.signals.slice(0, 3).join(" + ");
 
-    const title = `${r.displaySymbol} Score ${r.combinedScore} (${isSwing ? "Swing" : "Intraday"})`;
-    const body = `${r.price.toFixed(2)} ${r.currency} — ${topSignals || "Starkes Signal"}`;
+    const title = `${r.displaySymbol} Swing ${r.swing.total}`;
+    const body = `${r.price.toFixed(2)} ${r.currency} — ${topSignals || "Starkes Setup"}`;
     const tag = `scan-${r.displaySymbol}`;
 
     let anySent = false;
@@ -687,7 +684,7 @@ async function mergeAndNotify(env, config, totalChunks) {
 
     if (anySent) {
       await env.NCAPITAL_KV.put(cooldownKey, new Date().toISOString(), { expirationTtl: 3600 });
-      notifications.push({ symbol: r.displaySymbol, score: r.combinedScore, title });
+      notifications.push({ symbol: r.displaySymbol, score: r.swing.total, title });
     }
   }
 
