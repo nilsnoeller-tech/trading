@@ -1632,12 +1632,15 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
 
   const openEdit = (trade) => {
     setEditModal(trade);
+    // Wenn Trade schon EUR ist aber aus USD konvertiert, USD-Werte zurueckrechnen
+    const wasUsd = trade.originalWaehrung === "USD" && trade.usdWechselkurs;
+    const fx = wasUsd ? trade.usdWechselkurs : (trade.wechselkurs || 0);
     setEditInputs({
       symbol: trade.symbol,
-      stopLoss: String(trade.stopLoss),
-      ziel: String(trade.ziel),
-      waehrung: trade.waehrung || "EUR",
-      wechselkurs: trade.wechselkurs ? String(trade.wechselkurs) : "",
+      stopLoss: wasUsd ? String(Math.round(trade.stopLoss / fx * 100) / 100) : String(trade.stopLoss),
+      ziel: wasUsd ? String(Math.round(trade.ziel / fx * 100) / 100) : String(trade.ziel),
+      waehrung: wasUsd ? "USD" : (trade.originalWaehrung || trade.waehrung || "EUR"),
+      wechselkurs: fx ? String(fx) : "",
     });
   };
 
@@ -1646,13 +1649,16 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
     const sl = parseFloat(editInputs.stopLoss);
     const z = parseFloat(editInputs.ziel);
     if (!editInputs.symbol.trim() || !sl || sl <= 0 || !z || z <= 0) return;
+    const editIsUsd = editInputs.waehrung === "USD";
+    const editFx = parseFloat(editInputs.wechselkurs) || 0.93;
+    // Immer in EUR speichern
     onUpdateTrade(editModal.id, (t) => ({
       ...t,
       symbol: editInputs.symbol.toUpperCase().trim(),
-      stopLoss: sl,
-      ziel: z,
-      waehrung: editInputs.waehrung,
-      ...(editInputs.waehrung === "USD" && editInputs.wechselkurs ? { wechselkurs: parseFloat(editInputs.wechselkurs) } : {}),
+      stopLoss: editIsUsd ? Math.round(sl * editFx * 100) / 100 : sl,
+      ziel: editIsUsd ? Math.round(z * editFx * 100) / 100 : z,
+      waehrung: "EUR",
+      ...(editIsUsd ? { originalWaehrung: "USD", usdWechselkurs: editFx } : { originalWaehrung: undefined, usdWechselkurs: undefined }),
     }));
     setEditModal(null);
   };
@@ -1724,14 +1730,20 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
                 style={{ width: "100%", padding: "10px 12px", background: "rgba(10,13,17,0.6)", border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, fontWeight: 500, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: 12, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>Stop-Loss</label>
+              <label style={{ display: "block", fontSize: 12, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>Stop-Loss {editInputs.waehrung === "USD" ? "($)" : "(€)"}</label>
               <input type="number" value={editInputs.stopLoss} onChange={e => setEditInputs(p => ({ ...p, stopLoss: e.target.value }))}
                 style={{ width: "100%", padding: "10px 12px", background: "rgba(10,13,17,0.6)", border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, fontWeight: 500, outline: "none", boxSizing: "border-box" }} />
+              {editInputs.waehrung === "USD" && parseFloat(editInputs.stopLoss) > 0 && (
+                <div style={{ fontSize: 11, color: C.accent, marginTop: 4, fontWeight: 500 }}>≈ €{(parseFloat(editInputs.stopLoss) * (parseFloat(editInputs.wechselkurs) || 0.93)).toFixed(2)}</div>
+              )}
             </div>
             <div>
-              <label style={{ display: "block", fontSize: 12, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>Zielkurs</label>
+              <label style={{ display: "block", fontSize: 12, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>Zielkurs {editInputs.waehrung === "USD" ? "($)" : "(€)"}</label>
               <input type="number" value={editInputs.ziel} onChange={e => setEditInputs(p => ({ ...p, ziel: e.target.value }))}
                 style={{ width: "100%", padding: "10px 12px", background: "rgba(10,13,17,0.6)", border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, fontWeight: 500, outline: "none", boxSizing: "border-box" }} />
+              {editInputs.waehrung === "USD" && parseFloat(editInputs.ziel) > 0 && (
+                <div style={{ fontSize: 11, color: C.accent, marginTop: 4, fontWeight: 500 }}>≈ €{(parseFloat(editInputs.ziel) * (parseFloat(editInputs.wechselkurs) || 0.93)).toFixed(2)}</div>
+              )}
             </div>
             <div>
               <label style={{ display: "block", fontSize: 12, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>Waehrung</label>
@@ -1750,8 +1762,16 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
           {editInputs.waehrung === "USD" && (
             <div style={{ marginTop: 12 }}>
               <label style={{ display: "block", fontSize: 12, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>Wechselkurs (1$ = x€)</label>
-              <input type="number" value={editInputs.wechselkurs} onChange={e => setEditInputs(p => ({ ...p, wechselkurs: e.target.value }))} placeholder="0.93"
-                style={{ width: isMobile ? "100%" : "25%", padding: "10px 12px", background: "rgba(10,13,17,0.6)", border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, fontWeight: 500, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="number" value={editInputs.wechselkurs} onChange={e => setEditInputs(p => ({ ...p, wechselkurs: e.target.value }))} placeholder="0.93"
+                  style={{ width: isMobile ? "100%" : "200px", padding: "10px 12px", background: "rgba(10,13,17,0.6)", border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, fontWeight: 500, outline: "none", boxSizing: "border-box" }} />
+                <button onClick={async () => { try { const r = await fetch("https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR"); const d = await r.json(); if (d?.rates?.EUR) setEditInputs(p => ({ ...p, wechselkurs: String(d.rates.EUR) })); } catch {} }} style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.accent}40`, background: `${C.accent}10`, color: C.accentLight, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  Live-Kurs
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: C.accent, marginTop: 6, fontWeight: 500, padding: "6px 10px", borderRadius: 8, background: `${C.accent}08`, border: `1px solid ${C.accent}15`, display: "inline-block" }}>
+                Wird beim Speichern automatisch in EUR umgerechnet
+              </div>
             </div>
           )}
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
