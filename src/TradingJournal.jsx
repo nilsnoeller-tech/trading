@@ -80,7 +80,26 @@ function migrateTrade(oldTrade) {
 // ─── localStorage Persistenz ───
 const STORAGE_KEY = "ncapital-trades";
 const VERSION_KEY = "ncapital-trades-version";
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
+
+// Migration v3: USD-Trades → EUR umrechnen (alle Preise in EUR, einheitliches Log)
+function migrateUsdToEur(trade) {
+  if (trade.waehrung !== "USD" || !trade.wechselkurs) return trade;
+  const fx = trade.wechselkurs;
+  return {
+    ...trade,
+    stopLoss: Math.round(trade.stopLoss * fx * 100) / 100,
+    ziel: Math.round(trade.ziel * fx * 100) / 100,
+    waehrung: "EUR",
+    originalWaehrung: "USD",
+    usdWechselkurs: fx,
+    transactions: (trade.transactions || []).map(tx => ({
+      ...tx,
+      kurs: Math.round(tx.kurs * fx * 100) / 100,
+    })),
+  };
+}
+
 function loadTrades() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -88,6 +107,7 @@ function loadTrades() {
     if (saved) {
       let parsed = JSON.parse(saved);
       if (version < 2) parsed = parsed.map(migrateTrade);
+      if (version < 3) parsed = parsed.map(migrateUsdToEur);
       localStorage.setItem(VERSION_KEY, String(CURRENT_VERSION));
       const savedIds = new Set(INITIAL_TRADES.map(t => t.id));
       const newTrades = parsed.filter(t => !savedIds.has(t.id));
@@ -714,28 +734,33 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
 
   const handleAddTrade = () => {
     const stueck = parseInt(addInputs.stueckzahl) || empfPositionSize;
-    const kk = parseFloat(addInputs.kaufkurs) || einstieg;
-    if (!stueck || stueck <= 0 || !kk || kk <= 0) return;
+    const kkRaw = parseFloat(addInputs.kaufkurs) || einstieg;
+    if (!stueck || stueck <= 0 || !kkRaw || kkRaw <= 0) return;
+
+    // Bei USD: alle Preise in EUR umrechnen — Trade Log ist immer EUR
+    const kk = isUsd ? Math.round(kkRaw * wechselkurs * 100) / 100 : kkRaw;
+    const slEur = isUsd ? Math.round(sl * wechselkurs * 100) / 100 : sl;
+    const zielEur = isUsd ? Math.round(ziel * wechselkurs * 100) / 100 : ziel;
 
     if (isNachkauf && symbolHistory.openTrade) {
-      // Nachkauf: Transaction zum bestehenden Trade hinzufügen
+      // Nachkauf: Transaction zum bestehenden Trade hinzufügen (EUR-Kurs)
       onUpdateTrade(symbolHistory.openTrade.id, (trade) => ({
         ...trade,
         transactions: [...(trade.transactions || []), { type: "buy", datum: addInputs.datum, stueck, kurs: kk }],
       }));
     } else {
-      // Neuer Trade im Transaktionsformat
+      // Neuer Trade — immer in EUR gespeichert
       const newTrade = {
         id: Date.now(),
         symbol: inputs.symbol.toUpperCase(),
-        stopLoss: sl,
-        ziel,
+        stopLoss: slEur,
+        ziel: zielEur,
         setup: detectedSetup[0].name,
         score: totalScore,
         ampel,
         historical: false,
-        waehrung: inputs.waehrung,
-        ...(isUsd && { wechselkurs }),
+        waehrung: "EUR",
+        ...(isUsd && { originalWaehrung: "USD", usdWechselkurs: wechselkurs }),
         transactions: [{ type: "buy", datum: addInputs.datum, stueck, kurs: kk }],
       };
       onAddTrade(newTrade);
@@ -1353,15 +1378,15 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
                   { label: "Setup", value: detectedSetup[0]?.name },
                   { label: "Ampel", value: ampel, color: scoreColor },
                   { label: "CRV", value: fmt(crv, 1) + "x" },
-                  { label: "Einstieg", value: `${currencySymbol}${fmt(einstieg)}`, eur: isUsd ? `≈ ${fmt(einstieg * wechselkurs)} €` : null },
-                  { label: "Stop-Loss", value: `${currencySymbol}${fmt(sl)}`, eur: isUsd ? `≈ ${fmt(sl * wechselkurs)} €` : null },
-                  { label: "Ziel", value: `${currencySymbol}${fmt(ziel)}`, eur: isUsd ? `≈ ${fmt(ziel * wechselkurs)} €` : null },
+                  { label: "Einstieg", value: isUsd ? `€${fmt(einstieg * wechselkurs)}` : `€${fmt(einstieg)}`, sub: isUsd ? `($${fmt(einstieg)})` : null },
+                  { label: "Stop-Loss", value: isUsd ? `€${fmt(sl * wechselkurs)}` : `€${fmt(sl)}`, sub: isUsd ? `($${fmt(sl)})` : null },
+                  { label: "Ziel", value: isUsd ? `€${fmt(ziel * wechselkurs)}` : `€${fmt(ziel)}`, sub: isUsd ? `($${fmt(ziel)})` : null },
                   { label: "Score", value: `${totalScore}/${maxScore}` },
                 ].map((item, i) => (
                   <div key={i} style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(10,13,17,0.4)", border: `1px solid ${C.border}` }}>
                     <div style={{ fontSize: 10, color: C.textDim, textTransform: "uppercase", fontWeight: 600, marginBottom: 2 }}>{item.label}</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: item.color || C.text }}>{item.value}</div>
-                    {item.eur && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500, marginTop: 1 }}>{item.eur}</div>}
+                    {item.sub && <div style={{ fontSize: 10, color: C.textDim, fontWeight: 500, marginTop: 1 }}>{item.sub}</div>}
                   </div>
                 ))}
               </div>
@@ -1771,7 +1796,7 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
             </thead>
             <tbody>
               {filtered.map((t, i) => {
-                const cur = t.waehrung === "USD" ? "$" : "€";
+                const cur = "€"; // Alle Trades werden in EUR gespeichert
                 const isWin = t.pnl > 0;
                 const hasTxs = (t.transactions || []).length > 1;
                 const isExpanded = expandedId === t.id;
@@ -1787,13 +1812,13 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
                       <td style={{ padding: "10px 12px", color: C.textMuted, fontSize: 12, whiteSpace: "nowrap" }}>{t.datum}</td>
                       <td style={{ padding: "10px 12px" }}>
                         <span style={{ fontWeight: 700, color: C.text, fontSize: 14 }}>{t.symbol}</span>
-                        <span style={{ fontSize: 10, color: C.textDim, marginLeft: 6, fontWeight: 600 }}>{t.waehrung || "EUR"}</span>
+                        <span style={{ fontSize: 10, color: C.textDim, marginLeft: 6, fontWeight: 600 }}>{t.originalWaehrung === "USD" ? "USD→EUR" : "EUR"}</span>
                       </td>
                       <td style={{ padding: "10px 12px" }}><Badge color={C.blue}>{t.setup}</Badge></td>
-                      <td style={{ padding: "10px 12px" }}><div style={{ color: C.text, fontWeight: 500 }}>{cur}{fmt(t.avgKaufkurs)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.avgKaufkurs * t.fx)}</div>}</td>
-                      <td style={{ padding: "10px 12px" }}><div style={{ color: C.red, fontWeight: 500 }}>{cur}{fmt(t.stopLoss)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.stopLoss * t.fx)}</div>}</td>
-                      <td style={{ padding: "10px 12px" }}><div style={{ color: C.green, fontWeight: 500 }}>{cur}{fmt(t.ziel)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.ziel * t.fx)}</div>}</td>
-                      <td style={{ padding: "10px 12px" }}>{t.totalSold > 0 ? <><div style={{ color: C.text, fontWeight: 500 }}>{cur}{fmt(t.avgVerkaufskurs)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.avgVerkaufskurs * t.fx)}</div>}</> : <div style={{ color: C.textDim, fontWeight: 500 }}>–</div>}</td>
+                      <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500 }}>€{fmt(t.avgKaufkurs)}</td>
+                      <td style={{ padding: "10px 12px", color: C.red, fontWeight: 500 }}>€{fmt(t.stopLoss)}</td>
+                      <td style={{ padding: "10px 12px", color: C.green, fontWeight: 500 }}>€{fmt(t.ziel)}</td>
+                      <td style={{ padding: "10px 12px", color: t.totalSold > 0 ? C.text : C.textDim, fontWeight: 500 }}>{t.totalSold > 0 ? `€${fmt(t.avgVerkaufskurs)}` : "–"}</td>
                       <td style={{ padding: "10px 12px", fontWeight: 600, color: C.textMuted, fontSize: 12 }}>{t.remaining}/{t.totalBought}</td>
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ fontWeight: 700, color: t.totalSold === 0 ? C.textDim : isWin ? C.green : C.red }}>{t.totalSold > 0 ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(0)}€` : "–"}</div>
