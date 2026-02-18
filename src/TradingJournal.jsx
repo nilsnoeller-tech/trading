@@ -1790,10 +1790,10 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
                         <span style={{ fontSize: 10, color: C.textDim, marginLeft: 6, fontWeight: 600 }}>{t.waehrung || "EUR"}</span>
                       </td>
                       <td style={{ padding: "10px 12px" }}><Badge color={C.blue}>{t.setup}</Badge></td>
-                      <td style={{ padding: "10px 12px", color: C.text, fontWeight: 500 }}>{cur}{fmt(t.avgKaufkurs)}</td>
-                      <td style={{ padding: "10px 12px", color: C.red, fontWeight: 500 }}>{cur}{fmt(t.stopLoss)}</td>
-                      <td style={{ padding: "10px 12px", color: C.green, fontWeight: 500 }}>{cur}{fmt(t.ziel)}</td>
-                      <td style={{ padding: "10px 12px", color: t.totalSold > 0 ? C.text : C.textDim, fontWeight: 500 }}>{t.totalSold > 0 ? `${cur}${fmt(t.avgVerkaufskurs)}` : "–"}</td>
+                      <td style={{ padding: "10px 12px" }}><div style={{ color: C.text, fontWeight: 500 }}>{cur}{fmt(t.avgKaufkurs)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.avgKaufkurs * t.fx)}</div>}</td>
+                      <td style={{ padding: "10px 12px" }}><div style={{ color: C.red, fontWeight: 500 }}>{cur}{fmt(t.stopLoss)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.stopLoss * t.fx)}</div>}</td>
+                      <td style={{ padding: "10px 12px" }}><div style={{ color: C.green, fontWeight: 500 }}>{cur}{fmt(t.ziel)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.ziel * t.fx)}</div>}</td>
+                      <td style={{ padding: "10px 12px" }}>{t.totalSold > 0 ? <><div style={{ color: C.text, fontWeight: 500 }}>{cur}{fmt(t.avgVerkaufskurs)}</div>{t.fx !== 1 && <div style={{ fontSize: 10, color: C.accent, fontWeight: 500 }}>≈ €{fmt(t.avgVerkaufskurs * t.fx)}</div>}</> : <div style={{ color: C.textDim, fontWeight: 500 }}>–</div>}</td>
                       <td style={{ padding: "10px 12px", fontWeight: 600, color: C.textMuted, fontSize: 12 }}>{t.remaining}/{t.totalBought}</td>
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ fontWeight: 700, color: t.totalSold === 0 ? C.textDim : isWin ? C.green : C.red }}>{t.totalSold > 0 ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(0)}€` : "–"}</div>
