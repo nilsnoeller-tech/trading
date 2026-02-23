@@ -1641,7 +1641,12 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
       ziel: wasUsd ? String(Math.round(trade.ziel / fx * 100) / 100) : String(trade.ziel),
       waehrung: wasUsd ? "USD" : (trade.originalWaehrung || trade.waehrung || "EUR"),
       wechselkurs: fx ? String(fx) : "",
-      transactions: (trade.transactions || []).map(tx => ({ ...tx, kurs: String(tx.kurs), stueck: String(tx.stueck) })),
+      // Transaktions-Kurse ebenfalls zurueckrechnen bei USD-Trades
+      transactions: (trade.transactions || []).map(tx => ({
+        ...tx,
+        kurs: wasUsd && fx > 0 ? String(Math.round(tx.kurs / fx * 100) / 100) : String(tx.kurs),
+        stueck: String(tx.stueck),
+      })),
     });
   };
 
@@ -1652,10 +1657,14 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade }) => {
     if (!editInputs.symbol.trim() || !sl || sl <= 0 || !z || z <= 0) return;
     const editIsUsd = editInputs.waehrung === "USD";
     const editFx = parseFloat(editInputs.wechselkurs) || 0.93;
-    // Transaktionen validieren und parsen
+    // Transaktionen validieren, parsen und ggf. USD→EUR konvertieren
     const cleanTx = (editInputs.transactions || [])
       .filter(tx => parseFloat(tx.kurs) > 0 && parseInt(tx.stueck) > 0 && tx.datum)
-      .map(tx => ({ type: tx.type, datum: tx.datum, kurs: parseFloat(tx.kurs), stueck: parseInt(tx.stueck) }));
+      .map(tx => ({
+        type: tx.type, datum: tx.datum,
+        kurs: editIsUsd ? Math.round(parseFloat(tx.kurs) * editFx * 100) / 100 : parseFloat(tx.kurs),
+        stueck: parseInt(tx.stueck),
+      }));
     // Immer in EUR speichern
     onUpdateTrade(editModal.id, (t) => ({
       ...t,
