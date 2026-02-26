@@ -2117,8 +2117,7 @@ async function processAndNotify(env, config, allResults) {
 
   console.log(`[Scan] Merged: ${allResults.length} total, ${filtered.length} hits (swing >= ${threshold}), ${taPicks.length} TA picks (LONG R:R>=1.4), ${movers.length} movers (±5%), ${stats.errors} errors`);
 
-  // Send Telegram scanner alerts (swing >= 78, independent from Web Push)
-  await sendTelegramScannerAlerts(filtered, env);
+  // Trade-Setup Scanner (swing >= 78) deaktiviert — ersetzt durch TA-Scanner + Mover Alerts
 
   // Send Telegram TA picks alert (composite score LONG candidates)
   await sendTelegramTAPicksAlert(taPicks, env);
