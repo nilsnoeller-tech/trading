@@ -1893,9 +1893,9 @@ async function sendTelegramMessages(messages, env) {
 }
 
 // ─── Time-Based Symbol Selection ───
-// DAX 40:   07:30–19:00 UTC (08:30–20:00 DE)
-// S&P 500:  14:00–22:00 UTC (15:00–23:00 DE)
-// Overlap:  14:00–19:00 UTC (15:00–20:00 DE) → both markets
+// DAX 40:   09:00–19:00 UTC (10:00–20:00 CET)
+// S&P 500:  14:00–22:00 UTC (15:00–23:00 CET)
+// Overlap:  14:00–19:00 UTC → both markets
 
 function getActiveSymbols() {
   const now = new Date();
@@ -1903,8 +1903,8 @@ function getActiveSymbols() {
   const utcMinute = now.getUTCMinutes();
   const timeDecimal = utcHour + utcMinute / 60;
 
-  const daxActive = timeDecimal >= 7.5 && timeDecimal < 19;   // 07:30–18:59 UTC
-  const spActive  = timeDecimal >= 14  && timeDecimal < 22;   // 14:00–21:59 UTC
+  const daxActive = timeDecimal >= 9 && timeDecimal < 19;     // 09:00–18:59 UTC
+  const spActive  = timeDecimal >= 14 && timeDecimal < 22;    // 14:00–21:59 UTC
 
   if (daxActive && spActive) return { symbols: [...SP100_SYMBOLS, ...DAX40_SYMBOLS], mode: "both" };
   if (daxActive)             return { symbols: [...DAX40_SYMBOLS], mode: "dax-only" };
