@@ -891,10 +891,18 @@ function extractIndicators(candles) {
     atrTrend = atr10ago > 0 ? (atrNow - atr10ago) / atr10ago : 0;
   }
 
-  // Inside Bar: letzte Kerze komplett innerhalb der vorherigen
+  // Inside Bar: auf geschlossenen Kerzen pruefen (vorletzte innerhalb vorvorletzte),
+  // da letzte Kerze intraday noch unvollstaendig sein kann.
+  // Zusaetzlich: innere Range muss mind. 30% enger sein als aeussere (echte Konsolidierung).
   const lastC = candles[candles.length - 1];
   const prevC = candles[candles.length - 2];
-  const insideBar = lastC && prevC && lastC.high <= prevC.high && lastC.low >= prevC.low;
+  const prevPrevC = candles.length >= 3 ? candles[candles.length - 3] : null;
+  let insideBar = false;
+  if (prevC && prevPrevC) {
+    const innerRange = prevC.high - prevC.low;
+    const outerRange = prevPrevC.high - prevPrevC.low;
+    insideBar = prevC.high <= prevPrevC.high && prevC.low >= prevPrevC.low && outerRange > 0 && innerRange < outerRange * 0.7;
+  }
 
   // Higher Low: letztes Swing-Low hoeher als vorletztes
   const higherLow = swingLows.length >= 2 && swingLows[swingLows.length - 1] > swingLows[swingLows.length - 2];
