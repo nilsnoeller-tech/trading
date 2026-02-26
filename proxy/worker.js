@@ -2357,7 +2357,11 @@ async function sendTelegramTAPicksAlert(taPicks, env) {
       line += `   R:R <b>${tp.rr}</b> \u{2502} ${tp.shares} Stk. \u{2502} ${tp.portfolioPct}% Depot`;
     }
     const extParts = [];
-    if (r.ema20Distance != null) extParts.push(`EMA20 ${r.ema20Distance > 0 ? "+" : ""}${r.ema20Distance.toFixed(1)} ATR`);
+    if (r.ema20Distance != null) {
+      const abs = Math.abs(r.ema20Distance);
+      const dot = abs > 2.5 ? "\u{1F534}" : abs >= 1.5 ? "\u{1F7E0}" : "\u{1F7E2}";
+      extParts.push(`${dot} EMA20 ${r.ema20Distance > 0 ? "+" : ""}${r.ema20Distance.toFixed(1)} ATR`);
+    }
     if (r.relStrengthVsIndex != null) {
       const idx = r.symbol?.endsWith?.(".DE") ? "DAX" : "S&P";
       extParts.push(`RS vs ${idx} ${r.relStrengthVsIndex > 0 ? "+" : ""}${r.relStrengthVsIndex.toFixed(1)}%`);
@@ -2400,9 +2404,21 @@ async function sendTelegramMoverAlerts(movers, env) {
   const gainers = newMovers.filter(r => r.change > 0).sort((a, b) => (b.atrMultiple || 0) - (a.atrMultiple || 0));
   const losers = newMovers.filter(r => r.change < 0).sort((a, b) => (b.atrMultiple || 0) - (a.atrMultiple || 0));
 
+  // ATR multiple dot: always red (>= 3x)
+  // EMA20 distance dot: green < 1.5, orange 1.5-2.5, red > 2.5
+  const emaEmoji = (d) => {
+    const abs = Math.abs(d);
+    if (abs > 2.5) return "\u{1F534}";  // rot: Achtung
+    if (abs >= 1.5) return "\u{1F7E0}"; // orange: erhöht
+    return "\u{1F7E2}";                  // grün: normal
+  };
+
   const fmtExt = (r) => {
     const parts = [];
-    if (r.ema20Distance != null) parts.push(`EMA20 ${r.ema20Distance > 0 ? "+" : ""}${r.ema20Distance.toFixed(1)} ATR`);
+    if (r.ema20Distance != null) {
+      const e = emaEmoji(r.ema20Distance);
+      parts.push(`${e} EMA20 ${r.ema20Distance > 0 ? "+" : ""}${r.ema20Distance.toFixed(1)} ATR`);
+    }
     if (r.relStrengthVsIndex != null) {
       const idx = r.symbol?.endsWith?.(".DE") ? "DAX" : "S&P";
       parts.push(`RS vs ${idx} ${r.relStrengthVsIndex > 0 ? "+" : ""}${r.relStrengthVsIndex.toFixed(1)}%`);
@@ -2414,14 +2430,14 @@ async function sendTelegramMoverAlerts(movers, env) {
   if (gainers.length > 0) {
     lines.push("\u{1F4C8} <b>Top-Gewinner</b>");
     for (const r of gainers) {
-      lines.push(`\u{1F7E2} <b>${esc(r.displaySymbol)}</b>  ${fmtP(r.price)} ${r.currency}  <b>+${r.change.toFixed(1)}%</b>  (${r.atrMultiple || "?"}x ATR)${fmtExt(r)}`);
+      lines.push(`\u{1F7E2} <b>${esc(r.displaySymbol)}</b>  ${fmtP(r.price)} ${r.currency}  <b>+${r.change.toFixed(1)}%</b>  \u{1F534} ${r.atrMultiple || "?"}x ATR${fmtExt(r)}`);
     }
   }
   if (losers.length > 0) {
     if (gainers.length > 0) lines.push("");
     lines.push("\u{1F4C9} <b>Top-Verlierer</b>");
     for (const r of losers) {
-      lines.push(`\u{1F534} <b>${esc(r.displaySymbol)}</b>  ${fmtP(r.price)} ${r.currency}  <b>${r.change.toFixed(1)}%</b>  (${r.atrMultiple || "?"}x ATR)${fmtExt(r)}`);
+      lines.push(`\u{1F534} <b>${esc(r.displaySymbol)}</b>  ${fmtP(r.price)} ${r.currency}  <b>${r.change.toFixed(1)}%</b>  \u{1F534} ${r.atrMultiple || "?"}x ATR${fmtExt(r)}`);
     }
   }
 
