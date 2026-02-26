@@ -2093,7 +2093,7 @@ async function processAndNotify(env, config, allResults) {
   // ── Composite TA Picks: LONG only with R:R >= 1.4 ──
   const taPicks = allResults
     .filter((r) => r.composite && r.composite.direction === "LONG" && r.composite.tradePlan && r.composite.tradePlan.rr >= 1.4)
-    .sort((a, b) => (b.composite.compositeScore || 0) - (a.composite.compositeScore || 0))
+    .sort((a, b) => (b.composite.adjustedScore || 0) - (a.composite.adjustedScore || 0))
     .slice(0, 20); // Top 20 picks
 
   // ── ±5% Daily Movers ──
@@ -2296,8 +2296,8 @@ async function sendTelegramTAPicksAlert(taPicks, env) {
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const fmtP = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 
-  // Sort by compositeScore descending (not adjustedScore which overweights R:R)
-  newPicks.sort((a, b) => (b.composite.compositeScore || 0) - (a.composite.compositeScore || 0));
+  // Sort by adjustedScore descending (rewards better R:R setups)
+  newPicks.sort((a, b) => (b.composite.adjustedScore || 0) - (a.composite.adjustedScore || 0));
 
   const lines = newPicks.slice(0, 10).map((r, i) => {
     const c = r.composite;
