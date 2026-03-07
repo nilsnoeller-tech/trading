@@ -1,8 +1,9 @@
 // ─── Watchlist Component ───
-// Zwei Modi: Index Scanner (S&P 500 + DAX 40, server-seitig) und Custom Watchlist (manuell).
+// Drei Modi: TA-Picks (Telegram-Push Picks), Index Scanner (S&P 500 + DAX 40), Custom Watchlist (manuell).
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Zap, Bell, BellOff, RefreshCw, Plus, X, ChevronDown, ChevronUp, TrendingUp, Activity, AlertTriangle, CheckCircle, Trash2, Play, Search, Smartphone, Send, BarChart3, List, Globe } from "lucide-react";
+import { Zap, Bell, BellOff, RefreshCw, Plus, X, ChevronDown, ChevronUp, TrendingUp, Activity, AlertTriangle, CheckCircle, Trash2, Play, Search, Smartphone, Send, BarChart3, List, Globe, Target } from "lucide-react";
+import { authFetch } from "../services/auth";
 import { scanWatchlist } from "../services/watchlistScanner";
 import {
   requestNotificationPermission, getNotificationStatus, checkAndNotify,
@@ -211,6 +212,42 @@ function ResultsTable({ results, isMobile, sortBy, setSortBy, expandedRow, setEx
                     )}
                   </div>
                 </div>
+
+                {/* Trade Setup (Entry/Stop/Ziel/CRV/Risiko) */}
+                {r.swing.tradeSetup && r.swing.tradeSetup.entry > 0 && (() => {
+                  const ts = r.swing.tradeSetup;
+                  const fmtP = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2);
+                  return (
+                    <div style={{
+                      marginTop: 12, padding: 12, borderRadius: 10,
+                      background: `${C.accent}08`, border: `1px solid ${C.accent}15`,
+                    }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {r.swing.setupEmoji} Trade-Setup
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <div style={{ textAlign: "center", padding: 8, borderRadius: 8, background: `${C.text}06` }}>
+                          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>Entry</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{fmtP(ts.entry)} {r.currency}</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: 8, borderRadius: 8, background: `${C.red}08` }}>
+                          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>Stop</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.red }}>{fmtP(ts.stop)}</div>
+                          <div style={{ fontSize: 10, color: C.red }}>-{ts.stopPct}%</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: 8, borderRadius: 8, background: `${C.green}08` }}>
+                          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 2 }}>Ziel</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.green }}>{fmtP(ts.target)}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "center", gap: 16, fontSize: 12 }}>
+                        <span style={{ color: C.textMuted }}>CRV <b style={{ color: ts.crv >= 2 ? C.green : ts.crv >= 1.5 ? C.yellow : C.red }}>{ts.crv.toFixed(1)}</b></span>
+                        <span style={{ color: C.textMuted }}>Risiko <b style={{ color: ts.riskPct >= 0.75 ? C.green : ts.riskPct >= 0.5 ? C.yellow : C.red }}>{ts.riskLabel}</b></span>
+                        {r.swing.atr > 0 && <span style={{ color: C.textDim }}>ATR {fmtP(r.swing.atr)}</span>}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Action Buttons */}
                 <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
@@ -757,12 +794,230 @@ function CustomWatchlist({ isMobile, onNavigate }) {
   );
 }
 
+// ─── TA-Picks Tab (Composite Score LONG — same data as Telegram Push) ───
+
+const PROXY_BASE = "https://ncapital-market-proxy.nils-noeller.workers.dev";
+
+function TAPicksTab({ isMobile, onNavigate }) {
+  const [picks, setPicks] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchPicks = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await authFetch(`${PROXY_BASE}/api/scan/ta-picks`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      setPicks(data.picks || []);
+      setStats(data.stats || null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchPicks(); }, [fetchPicks]);
+
+  const fmtP = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2);
+  const confColor = (c) => c === "STRONG BUY" ? C.green : c === "BUY" ? "#00D68F" : C.yellow;
+
+  const regime = stats?.marketRegime;
+  const sp500Bull = regime?.sp500 === "bullish";
+  const daxBull = regime?.dax === "bullish";
+
+  return (
+    <>
+      <GlassCard>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Target size={18} style={{ color: C.accent }} />
+            <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>TA-Picks: Optimierte LONG Kandidaten</h3>
+          </div>
+          <button onClick={fetchPicks} disabled={loading} style={{
+            background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8,
+            padding: "6px 12px", color: C.textMuted, cursor: "pointer", fontSize: 12,
+            display: "flex", alignItems: "center", gap: 4,
+          }}>
+            <RefreshCw size={12} style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
+            Aktualisieren
+          </button>
+        </div>
+
+        {/* Market Regime */}
+        {regime && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <span style={{
+              fontSize: 10, fontWeight: 600, borderRadius: 5, padding: "2px 8px",
+              color: sp500Bull ? C.green : C.red,
+              background: `${sp500Bull ? C.green : C.red}12`,
+              border: `1px solid ${sp500Bull ? C.green : C.red}25`,
+            }}>
+              S&P 500 {sp500Bull ? "\u2713 \u00FCber" : "\u2717 unter"} SMA200
+            </span>
+            <span style={{
+              fontSize: 10, fontWeight: 600, borderRadius: 5, padding: "2px 8px",
+              color: daxBull ? C.green : C.red,
+              background: `${daxBull ? C.green : C.red}12`,
+              border: `1px solid ${daxBull ? C.green : C.red}25`,
+            }}>
+              DAX {daxBull ? "\u2713 \u00FCber" : "\u2717 unter"} SMA200
+            </span>
+          </div>
+        )}
+
+        {/* Filter Chips */}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+          {["Score \u2265 7.5", "RS 0\u201315%", "EMA20 < 2 ATR", "Index > SMA200", "Max 2/Sektor"].map((f) => (
+            <span key={f} style={{
+              fontSize: 9, color: C.accent, background: `${C.accent}10`, borderRadius: 4, padding: "1px 5px",
+              border: `1px solid ${C.accent}20`,
+            }}>{f}</span>
+          ))}
+        </div>
+
+        <div style={{ color: C.textMuted, fontSize: 11, marginBottom: 4 }}>
+          Backtest-optimiert (PF 1.56 {"\u2022"} WR 57% {"\u2022"} MaxDD -4.5%) {"\u2022"} Depot EUR 45k
+          {stats && <span> {"\u2022"} {stats.totalScanned} gescannt, {stats.unfilteredPicks || stats.longPicks} unfiltered {"\u2192"} {stats.longPicks} Picks</span>}
+        </div>
+      </GlassCard>
+
+      {/* Loading / Error / Empty */}
+      {loading && (
+        <div style={{ textAlign: "center", padding: 40, color: C.textMuted }}>
+          <RefreshCw size={20} style={{ animation: "spin 1s linear infinite", marginBottom: 8 }} />
+          <div>Lade TA-Picks...</div>
+        </div>
+      )}
+      {error && (
+        <div style={{ textAlign: "center", padding: 40, color: C.red }}>
+          <AlertTriangle size={20} style={{ marginBottom: 8 }} />
+          <div>Fehler: {error}</div>
+        </div>
+      )}
+      {!loading && !error && picks.length === 0 && (
+        <GlassCard style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ color: C.textMuted, fontSize: 14 }}>Keine Picks verfügbar</div>
+          <div style={{ color: C.textDim, fontSize: 12, marginTop: 4 }}>Daten werden während der Handelszeiten aktualisiert (Mo–Fr 10–23 Uhr)</div>
+        </GlassCard>
+      )}
+
+      {/* Pick Cards */}
+      {!loading && picks.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginTop: 12 }}>
+          {picks.map((r, i) => {
+            const c = r.composite;
+            const tp = c?.tradePlan;
+            if (!c || !tp) return null;
+
+            const range = tp.target - tp.stop;
+            const entryPos = range > 0 ? ((tp.entry - tp.stop) / range) * 100 : 50;
+
+            return (
+              <GlassCard key={i} style={{ padding: 16 }}>
+                {/* Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textDim, background: `${C.accent}15`, borderRadius: 6, padding: "2px 7px" }}>#{i + 1}</span>
+                    <span style={{ color: C.text, fontSize: 18, fontWeight: 700 }}>{r.displaySymbol}</span>
+                    <span style={{ color: C.textDim, fontSize: 11 }}>{r.currency}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: confColor(c.confidence), background: `${confColor(c.confidence)}15`, padding: "3px 10px", borderRadius: 6 }}>
+                      {c.compositeScore}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Price + Change */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <span style={{ color: C.text, fontSize: 15, fontWeight: 600, fontFamily: "monospace" }}>{fmtP(r.price)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: r.change >= 0 ? C.green : C.red }}>
+                    {r.change >= 0 ? "+" : ""}{r.change?.toFixed(2)}%
+                  </span>
+                </div>
+
+                {/* Entry / Stop / Target Bar */}
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>Stop {fmtP(tp.stop)}</span>
+                    <span style={{ fontSize: 11, color: C.blue, fontWeight: 600 }}>Entry {fmtP(tp.entry)}</span>
+                    <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>Ziel {fmtP(tp.target)}</span>
+                  </div>
+                  <div style={{ height: 8, background: C.border, borderRadius: 4, position: "relative" }}>
+                    <div style={{ position: "absolute", left: 0, height: "100%", width: `${entryPos}%`, background: `${C.red}40`, borderRadius: "4px 0 0 4px" }} />
+                    <div style={{ position: "absolute", left: `${entryPos}%`, height: "100%", width: `${100 - entryPos}%`, background: `${C.green}40`, borderRadius: "0 4px 4px 0" }} />
+                    <div style={{ position: "absolute", left: `${entryPos}%`, top: -3, width: 3, height: 14, background: C.blue, borderRadius: 2, transform: "translateX(-50%)" }} />
+                  </div>
+                </div>
+
+                {/* Trade Stats */}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+                  <span>R:R <b style={{ color: tp.rr >= 2 ? C.green : C.yellow }}>{tp.rr}</b></span>
+                  <span>{tp.shares} Stk.</span>
+                  <span>Risiko {"\u20AC"}{tp.riskTotal?.toFixed(0) || "450"}</span>
+                  <span>ATR {fmtP(r.atr || tp.atr || 0)}</span>
+                </div>
+
+                {/* RS + EMA20 Badges */}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {r.ema20Distance != null && (
+                    <span style={{
+                      fontSize: 10,
+                      color: Math.abs(r.ema20Distance) > 2 ? "#f59e0b" : C.textDim,
+                      background: `${Math.abs(r.ema20Distance) > 2 ? "#f59e0b" : C.textDim}10`,
+                      borderRadius: 5, padding: "2px 6px",
+                    }}>
+                      EMA20 {r.ema20Distance > 0 ? "+" : ""}{r.ema20Distance.toFixed(1)} ATR
+                    </span>
+                  )}
+                  {r.relStrengthVsIndex != null && (
+                    <span style={{
+                      fontSize: 10,
+                      color: r.relStrengthVsIndex > 0 ? C.green : r.relStrengthVsIndex < -3 ? C.red : C.textDim,
+                      background: `${r.relStrengthVsIndex > 0 ? C.green : r.relStrengthVsIndex < -3 ? C.red : C.textDim}10`,
+                      borderRadius: 5, padding: "2px 6px",
+                    }}>
+                      RS vs {r.currency === "EUR" ? "DAX" : "S&P"} {r.relStrengthVsIndex > 0 ? "+" : ""}{r.relStrengthVsIndex.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+
+                {/* Trade Check Button */}
+                {onNavigate && (
+                  <button onClick={() => onNavigate("tradecheck", r.displaySymbol)} style={{
+                    marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 10, border: `1px solid ${C.accent}30`,
+                    background: `${C.accent}08`, color: C.accent, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  }}>
+                    Trade Check starten {"\u2192"}
+                  </button>
+                )}
+              </GlassCard>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Main Watchlist Component ───
 export default function Watchlist({ onNavigate }) {
-  const [activeTab, setActiveTab] = useState(() => localStorage.getItem(TAB_KEY) || "index");
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem(TAB_KEY) || "tapicks");
   const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
 
   useEffect(() => { localStorage.setItem(TAB_KEY, activeTab); }, [activeTab]);
+
+  const tabStyle = (id) => ({
+    padding: isMobile ? "8px 14px" : "10px 20px", borderRadius: 10, border: "none", cursor: "pointer",
+    background: activeTab === id ? `linear-gradient(135deg, ${C.accent}, ${C.accentLight})` : "transparent",
+    color: activeTab === id ? "#fff" : C.textMuted,
+    fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6,
+    transition: "all 0.2s",
+  });
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
@@ -771,30 +1026,24 @@ export default function Watchlist({ onNavigate }) {
         display: "flex", gap: 4, marginBottom: 20, padding: 4, borderRadius: 12,
         background: C.card, border: `1px solid ${C.border}`, width: "fit-content",
       }}>
-        <button onClick={() => setActiveTab("index")} style={{
-          padding: "10px 20px", borderRadius: 10, border: "none", cursor: "pointer",
-          background: activeTab === "index" ? `linear-gradient(135deg, ${C.accent}, ${C.accentLight})` : "transparent",
-          color: activeTab === "index" ? "#fff" : C.textMuted,
-          fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6,
-          transition: "all 0.2s",
-        }}>
-          <Globe size={15} />
-          {isMobile ? "S&P + DAX" : "S&P 500 + DAX"}
+        <button onClick={() => setActiveTab("tapicks")} style={tabStyle("tapicks")}>
+          <Target size={15} />
+          TA-Picks
         </button>
-        <button onClick={() => setActiveTab("custom")} style={{
-          padding: "10px 20px", borderRadius: 10, border: "none", cursor: "pointer",
-          background: activeTab === "custom" ? `linear-gradient(135deg, ${C.accent}, ${C.accentLight})` : "transparent",
-          color: activeTab === "custom" ? "#fff" : C.textMuted,
-          fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 6,
-          transition: "all 0.2s",
-        }}>
+        <button onClick={() => setActiveTab("index")} style={tabStyle("index")}>
+          <Globe size={15} />
+          {isMobile ? "Scanner" : "Index Scanner"}
+        </button>
+        <button onClick={() => setActiveTab("custom")} style={tabStyle("custom")}>
           <List size={15} />
           Watchlist
         </button>
       </div>
 
       {/* Active Tab Content */}
-      {activeTab === "index"
+      {activeTab === "tapicks"
+        ? <TAPicksTab isMobile={isMobile} onNavigate={onNavigate} />
+        : activeTab === "index"
         ? <IndexScanner isMobile={isMobile} onNavigate={onNavigate} />
         : <CustomWatchlist isMobile={isMobile} onNavigate={onNavigate} />
       }
