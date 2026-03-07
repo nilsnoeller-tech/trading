@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2, Eye, Layers, Newspaper, LogOut, Settings as SettingsIcon, User, Edit3, Trash2, Save, Camera, Image as ImageIcon } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2, Eye, EyeOff, Layers, Newspaper, LogOut, Settings as SettingsIcon, User, Edit3, Trash2, Save, Camera, Image as ImageIcon, Calendar } from "lucide-react";
 import Watchlist from "./components/Watchlist";
 import Briefing from "./components/Briefing";
 import LoginPage from "./components/LoginPage";
 import { useAutoScore } from "./hooks/useAutoScore";
 import { getFinvizChartUrl, isFinvizAvailable } from "./services/marketData";
-import { isAuthenticated, getUser, logout as authLogout, verifyMagicToken } from "./services/auth";
+import { isAuthenticated, getUser, logout as authLogout, verifyMagicToken, authFetch } from "./services/auth";
 import { saveScreenshot, getScreenshotUrl, deleteScreenshot } from "./services/screenshotStore";
 
 // ─── Color System ───
@@ -2273,6 +2273,8 @@ const SettingsPage = ({ currentStartkapital, onStartkapitalChange }) => {
 // ════════════════════════════════════════════════════════════════
 // ─── MAIN APP ───
 // ════════════════════════════════════════════════════════════════
+const PROXY_BASE = "https://ncapital-market-proxy.nils-noeller.workers.dev";
+
 export default function TradingJournal() {
   const [authed, setAuthed] = useState(isAuthenticated());
   const [page, setPage] = useState("briefing");
@@ -2280,6 +2282,8 @@ export default function TradingJournal() {
   const [startkapital, setStartkapitalState] = useState(getStartkapital);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" && !navigator.onLine);
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [showKapital, setShowKapital] = useState(false);
   const ww = useWindowWidth();
   const isMobile = ww < 768;
 
@@ -2332,6 +2336,28 @@ export default function TradingJournal() {
 
   // localStorage Persistenz
   useEffect(() => { saveTrades(tradeList); }, [tradeList]);
+
+  // Fetch calendar events for sidebar widget
+  useEffect(() => {
+    if (!authed) return;
+    (async () => {
+      try {
+        // Use cached briefing data if available
+        const cached = localStorage.getItem("ncapital-briefing-cache");
+        if (cached) {
+          const { data } = JSON.parse(cached);
+          const events = data?.morning?.seasonalContext?.upcomingEvents || data?.afternoon?.seasonalContext?.upcomingEvents || [];
+          if (events.length > 0) { setCalendarEvents(events.filter(e => e.impact === "high" || e.impact === "medium").slice(0, 3)); return; }
+        }
+        const res = await authFetch(`${PROXY_BASE}/api/briefing/latest`);
+        if (res.ok) {
+          const json = await res.json();
+          const events = json?.morning?.seasonalContext?.upcomingEvents || json?.afternoon?.seasonalContext?.upcomingEvents || [];
+          setCalendarEvents(events.filter(e => e.impact === "high" || e.impact === "medium").slice(0, 3));
+        }
+      } catch {}
+    })();
+  }, [authed]);
 
   const portfolio = useMemo(() => computePortfolio(tradeList, startkapital), [tradeList, startkapital]);
 
@@ -2428,10 +2454,35 @@ export default function TradingJournal() {
             ))}
           </div>
           <div style={{ marginTop: "auto" }}>
+            {/* Wirtschaftskalender Widget */}
+            {calendarEvents.length > 0 && (
+              <div onClick={() => setPage("briefing")} style={{ padding: "10px 12px", borderRadius: 12, background: `${C.orange}08`, border: `1px solid ${C.orange}15`, marginBottom: 10, cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <Calendar size={13} color={C.orange} />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.orange, textTransform: "uppercase", letterSpacing: "0.05em" }}>Kalender</span>
+                </div>
+                {calendarEvents.map((ev, i) => {
+                  const iColor = ev.impact === "high" ? C.red : C.orange;
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: i < calendarEvents.length - 1 ? 4 : 0 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: ev.daysUntil <= 1 ? C.accent : C.textMuted, minWidth: 30 }}>{ev.day}.{ev.month}.</span>
+                      <span style={{ fontSize: 10, color: C.text, fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.name}</span>
+                      <span style={{ fontSize: 8, fontWeight: 700, color: iColor, background: `${iColor}20`, borderRadius: 3, padding: "1px 4px" }}>{ev.impact === "high" ? "H" : "M"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Depot Box — ROI only, toggle for EUR value */}
             <div style={{ padding: "16px 12px", borderRadius: 12, background: `${C.accent}08`, border: `1px solid ${C.accent}15`, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: C.textDim, marginBottom: 4 }}>Aktuelles Kapital</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: C.accentLight }}>{fmtEur(portfolio.kapital)}</div>
-              <div style={{ fontSize: 11, color: portfolio.roiPct >= 0 ? C.green : C.red, fontWeight: 600, marginTop: 2 }}>{portfolio.roiPct >= 0 ? "+" : ""}{portfolio.roiPct.toFixed(1)}% ROI</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ fontSize: 11, color: C.textDim }}>Depot</div>
+                <button onClick={(e) => { e.stopPropagation(); setShowKapital(s => !s); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, padding: 2, display: "flex" }}>
+                  {showKapital ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+              </div>
+              {showKapital && <div style={{ fontSize: 20, fontWeight: 800, color: C.accentLight }}>{fmtEur(portfolio.kapital)}</div>}
+              <div style={{ fontSize: showKapital ? 11 : 20, color: portfolio.roiPct >= 0 ? C.green : C.red, fontWeight: showKapital ? 600 : 800, marginTop: showKapital ? 2 : 0 }}>{portfolio.roiPct >= 0 ? "+" : ""}{portfolio.roiPct.toFixed(1)}% ROI</div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => setPage("settings")} style={{
@@ -2481,8 +2532,14 @@ export default function TradingJournal() {
             </div>
             <div style={{ marginTop: "auto" }}>
               <div style={{ padding: "16px 12px", borderRadius: 12, background: `${C.accent}08`, border: `1px solid ${C.accent}15`, marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: C.textDim, marginBottom: 4 }}>Aktuelles Kapital</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: C.accentLight }}>{fmtEur(portfolio.kapital)}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <div style={{ fontSize: 11, color: C.textDim }}>Depot</div>
+                  <button onClick={(e) => { e.stopPropagation(); setShowKapital(s => !s); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, padding: 2, display: "flex" }}>
+                    {showKapital ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+                {showKapital && <div style={{ fontSize: 20, fontWeight: 800, color: C.accentLight }}>{fmtEur(portfolio.kapital)}</div>}
+                <div style={{ fontSize: showKapital ? 11 : 20, color: portfolio.roiPct >= 0 ? C.green : C.red, fontWeight: showKapital ? 600 : 800, marginTop: showKapital ? 2 : 0 }}>{portfolio.roiPct >= 0 ? "+" : ""}{portfolio.roiPct.toFixed(1)}% ROI</div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => navigate("settings")} style={{

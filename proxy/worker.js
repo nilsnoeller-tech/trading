@@ -2334,12 +2334,36 @@ async function processAndNotify(env, config, allResults) {
   const hasUS = allResults.some((r) => !r.symbol.endsWith(".DE"));
   const scanScope = hasDE && hasUS ? "both" : hasDE ? "dax-only" : "sp100-only";
 
+  // ── Sector lookup + avg change per sector (informational, no scoring) ──
+  const sectorMap = {};
+  for (const [sector, syms] of Object.entries(US_SECTORS)) {
+    for (const s of syms) sectorMap[s] = sector;
+  }
+  for (const [sector, syms] of Object.entries(DAX_SECTORS)) {
+    for (const s of syms) sectorMap[s + ".DE"] = sector;
+  }
+  // Calculate average change per sector from allResults
+  const sectorChanges = {};
+  for (const r of allResults) {
+    const sec = sectorMap[r.symbol];
+    if (!sec || r.change == null) continue;
+    if (!sectorChanges[sec]) sectorChanges[sec] = { sum: 0, count: 0 };
+    sectorChanges[sec].sum += r.change;
+    sectorChanges[sec].count++;
+  }
+  const sectorAvgMap = {};
+  for (const [sec, { sum, count }] of Object.entries(sectorChanges)) {
+    sectorAvgMap[sec] = +(sum / count).toFixed(2);
+  }
+
   // Map current picks/movers for KV
   const currentPicksMapped = taPicks.map((r) => ({
     symbol: r.symbol, displaySymbol: r.displaySymbol, name: r.name,
     currency: r.currency, price: r.price, change: r.change, atr: r.atr,
     ema20Distance: r.ema20Distance, relStrengthVsIndex: r.relStrengthVsIndex,
     composite: r.composite, swing: { total: r.swing.total, setup: r.swing.setup, setupEmoji: r.swing.setupEmoji },
+    sector: sectorMap[r.symbol] || null,
+    sectorAvgChange: sectorMap[r.symbol] ? (sectorAvgMap[sectorMap[r.symbol]] ?? null) : null,
   }));
   const currentMoversMapped = movers.map((r) => ({
     symbol: r.symbol, displaySymbol: r.displaySymbol, name: r.name,

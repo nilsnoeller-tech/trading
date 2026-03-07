@@ -170,10 +170,10 @@ export async function fetchIndexData(currency) {
  * Generiert die Finviz-Chart-URL fuer ein Symbol.
  * Funktioniert nur fuer US-Aktien.
  */
-export function getFinvizChartUrl(symbol) {
+export function getFinvizChartUrl(symbol, size = "l") {
   // Finviz verwendet nur US-Ticker ohne Suffix
   const cleanSymbol = symbol.replace(/\.(DE|F|PA|L|AS|MI|MC|BR|VI|HE|CO|ST|OL)$/i, "");
-  return `https://finviz.com/chart.ashx?t=${encodeURIComponent(cleanSymbol.toUpperCase())}&ty=c&ta=1&p=d&s=l`;
+  return `https://finviz.com/chart.ashx?t=${encodeURIComponent(cleanSymbol.toUpperCase())}&ty=c&ta=1&p=d&s=${size}`;
 }
 
 /**

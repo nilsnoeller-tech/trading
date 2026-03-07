@@ -2,7 +2,7 @@
 // Taeglich automatisierte Markt-Briefings: Morning (08:30, DAX/EU) und Afternoon (15:00, US)
 
 import React, { useState, useEffect, useCallback } from "react";
-import { RefreshCw, Sun, Moon, TrendingUp, TrendingDown, Minus, AlertTriangle, Calendar, BarChart3, Target, ArrowRight, Clock } from "lucide-react";
+import { RefreshCw, Sun, Moon, TrendingUp, TrendingDown, Minus, AlertTriangle, Calendar, BarChart3, Target, Clock } from "lucide-react";
 import { authFetch } from "../services/auth.js";
 
 const PROXY_BASE = "https://ncapital-market-proxy.nils-noeller.workers.dev";
@@ -211,22 +211,16 @@ export default function Briefing({ onNavigate }) {
           {/* ── Saisonale Einordnung ── */}
           <SeasonalSection seasonal={briefing.seasonalContext} isMobile={isMobile} />
 
-          {/* ── Wirtschaftskalender ── */}
-          <CalendarSection upcomingEvents={briefing.seasonalContext?.upcomingEvents} isMobile={isMobile} />
+          {/* ── Pre-Market Futures (oben) ── */}
+          {briefing.futures && (
+            <FuturesSection futures={briefing.futures} isMobile={isMobile} />
+          )}
 
-          {/* ── Makro-Ueberblick ── */}
-          <MacroSection macro={briefing.macroOverview} vixHistory={briefing.vixHistory} isMobile={isMobile} />
-
-          {/* ── Liquiditaet & Volumen ── */}
-          <LiquiditySection volumeOverview={briefing.volumeOverview} aggregateLiquidity={briefing.aggregateLiquidity} isMobile={isMobile} />
+          {/* ── Indizes (S&P 500, DAX etc.) ── */}
+          <IndicesSection macro={briefing.macroOverview} isMobile={isMobile} />
 
           {/* ── Intermarket-Signale ── */}
           <IntermarketSection signals={briefing.intermarketSignals} isMobile={isMobile} />
-
-          {/* ── Sektor-Rotation ── */}
-          {briefing.sectorRotation?.length > 0 && (
-            <SectorSection sectors={briefing.sectorRotation} regionFocus={briefing.regionFocus} isMobile={isMobile} />
-          )}
 
           {/* ── TA Scanner Picks (Composite Score LONG) ── */}
           {taPicks?.picks?.length > 0 && (
@@ -238,17 +232,8 @@ export default function Briefing({ onNavigate }) {
             <MoversSection movers={taPicks.movers} isMobile={isMobile} onNavigate={onNavigate} />
           )}
 
-          {/* ── Scanner Top-Hits ── */}
-          {briefing.scannerHits?.length > 0 && (
-            <ScannerHitsSection hits={briefing.scannerHits} isMobile={isMobile} onNavigate={onNavigate} />
-          )}
-
-          {/* TradeSetupsSection entfernt — TA-Picks-Section zeigt Composite-Score-Picks */}
-
-          {/* ── Futures ── */}
-          {briefing.futures && (
-            <FuturesSection futures={briefing.futures} isMobile={isMobile} />
-          )}
+          {/* ── Uebrige Makro-Daten (VIX, Anleihen, Rohstoffe, Krypto, Waehrungen) ── */}
+          <MacroRemainingSection macro={briefing.macroOverview} vixHistory={briefing.vixHistory} isMobile={isMobile} />
         </>
       )}
 
@@ -324,133 +309,6 @@ function SeasonalSection({ seasonal, isMobile }) {
         </div>
       )}
 
-    </GlassCard>
-  );
-}
-
-// ─── Calendar Section (Wirtschaftskalender mit Impact-Scoring) ───
-function CalendarSection({ upcomingEvents, isMobile }) {
-  if (!upcomingEvents?.length) return null;
-
-  const typeColors = { fed: C.orange, options: C.red, earnings: C.blue, political: C.accent, data: C.yellow, ecb: C.blue, minutes: C.textMuted };
-  const typeIcons = { fed: "\uD83C\uDFE6", options: "\uD83D\uDCCA", earnings: "\uD83D\uDCC8", political: "\uD83D\uDDF3\uFE0F", data: "\uD83D\uDCC9", ecb: "\uD83C\uDDEA\uD83C\uDDFA", minutes: "\uD83D\uDCDD" };
-  const impactColors = { high: C.red, medium: C.orange, low: C.yellow };
-  const impactLabels = { high: "Hoch", medium: "Mittel", low: "Niedrig" };
-
-  const groups = [
-    { label: "Diese Woche", events: upcomingEvents.filter(e => e.daysUntil <= 7) },
-    { label: "Naechste Woche", events: upcomingEvents.filter(e => e.daysUntil > 7 && e.daysUntil <= 14) },
-    { label: "Spaeter", events: upcomingEvents.filter(e => e.daysUntil > 14) },
-  ].filter(g => g.events.length > 0);
-
-  return (
-    <GlassCard>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        <Calendar size={18} color={C.accent} />
-        <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>Wirtschaftskalender</h3>
-        <span style={{ color: C.textMuted, fontSize: 12 }}>Naechste 30 Tage</span>
-      </div>
-      {groups.map(group => (
-        <div key={group.label} style={{ marginBottom: 14 }}>
-          <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>{group.label}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {group.events.map((ev, i) => {
-              const iColor = impactColors[ev.impact] || C.yellow;
-              const icon = typeIcons[ev.type] || "\uD83D\uDCC5";
-              return (
-                <div key={i} style={{
-                  display: "flex", alignItems: "flex-start", gap: 10,
-                  background: C.bg, borderRadius: 10, padding: "10px 14px",
-                  border: `1px solid ${C.border}`, borderLeft: `3px solid ${iColor}`,
-                }}>
-                  <div style={{ minWidth: 44, textAlign: "center" }}>
-                    <div style={{ fontSize: 10, color: C.textDim }}>
-                      {ev.daysUntil <= 0 ? "Heute" : ev.daysUntil === 1 ? "Morgen" : `In ${ev.daysUntil}d`}
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: ev.daysUntil <= 1 ? C.accent : C.text }}>
-                      {ev.day}.{ev.month}.
-                    </div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 14 }}>{icon}</span>
-                      <span style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{ev.name}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: iColor, background: `${iColor}20`, borderRadius: 4, padding: "1px 6px" }}>
-                        {impactLabels[ev.impact] || ev.impact}
-                      </span>
-                    </div>
-                    {ev.description && (!isMobile || ev.impact === "high") && (
-                      <div style={{ color: C.textMuted, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>{ev.description}</div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </GlassCard>
-  );
-}
-
-// ─── Liquidity Section (Volumen-Analyse fuer Indizes) ───
-function LiquiditySection({ volumeOverview, aggregateLiquidity, isMobile }) {
-  if (!volumeOverview?.length) return null;
-
-  const levelColors = { "Hoch": C.green, "Normal": C.yellow, "Unterdurchschnittlich": C.orange, "Niedrig": C.red };
-
-  function formatVol(n) {
-    if (!n) return "—";
-    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
-    if (n >= 1e6) return (n / 1e6).toFixed(0) + "M";
-    if (n >= 1e3) return (n / 1e3).toFixed(0) + "K";
-    return n.toString();
-  }
-
-  return (
-    <GlassCard>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        <BarChart3 size={18} color={C.accent} />
-        <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>Liquiditaet & Volumen</h3>
-        {aggregateLiquidity && (
-          <span style={{
-            fontSize: 11, fontWeight: 700, marginLeft: "auto",
-            color: levelColors[aggregateLiquidity.level] || C.textMuted,
-            background: `${(levelColors[aggregateLiquidity.level] || C.textMuted)}20`,
-            borderRadius: 6, padding: "2px 8px",
-          }}>
-            {"\u00D8"} {aggregateLiquidity.avgRatio}x ({aggregateLiquidity.level})
-          </span>
-        )}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
-        {volumeOverview.map(v => {
-          const color = levelColors[v.level] || C.textMuted;
-          const barWidth = Math.min(100, Math.max(5, v.ratio * 50));
-          return (
-            <div key={v.symbol} style={{ background: C.bg, borderRadius: 12, padding: 12, border: `1px solid ${C.border}` }}>
-              <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{v.name}</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
-                <span style={{ fontSize: 20, fontWeight: 700, color, fontFamily: "monospace" }}>{v.ratio}x</span>
-                <span style={{ fontSize: 10, color: C.textDim }}>{v.level}</span>
-              </div>
-              <div style={{ height: 6, background: C.border, borderRadius: 3, marginBottom: 6, position: "relative" }}>
-                <div style={{ height: "100%", width: `${barWidth}%`, background: color, borderRadius: 3, transition: "width .5s" }} />
-                {/* 1.0x reference line */}
-                <div style={{ position: "absolute", left: "50%", top: -1, width: 1, height: 8, background: C.textDim }} />
-              </div>
-              <div style={{ fontSize: 10, color: C.textDim }}>
-                Vol: {formatVol(v.current)} / {"\u00D8"} {formatVol(v.avg5d)}
-              </div>
-              {v.longTermRatio != null && (
-                <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
-                  vs. Jahres-{"\u00D8"}: <span style={{ color: v.longTermRatio >= 1 ? C.green : C.red, fontWeight: 600 }}>{v.longTermRatio}x</span>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </GlassCard>
   );
 }
@@ -669,72 +527,86 @@ function RangeTooltip({ item, isMobile }) {
   );
 }
 
-function MacroSection({ macro, vixHistory, isMobile }) {
-  if (!macro?.length) return null;
+// Helper: render macro items grid (shared by IndicesSection and MacroRemainingSection)
+function MacroItemsGrid({ items, vixHistory, isMobile }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+      {items.map(item => {
+        const isVix = item.symbol === "^VIX";
+        let priceColor = C.text;
+        if (isVix) {
+          priceColor = item.price >= 30 ? C.red : item.price >= 20 ? C.orange : item.price >= 15 ? C.yellow : C.green;
+        }
+        return (
+          <div key={item.symbol} style={{ background: C.bg, borderRadius: 12, padding: isMobile ? 10 : 12, border: `1px solid ${C.border}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {item.name}
+              </span>
+              <TrendIcon change={item.change} />
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ color: priceColor, fontSize: isMobile ? 15 : 17, fontWeight: 700, fontFamily: "monospace" }}>
+                {item.price?.toLocaleString("de-DE", { maximumFractionDigits: item.price > 100 ? 0 : 2 })}
+              </span>
+              <ChangeDisplay change={item.change} style={{ fontSize: 12 }} />
+            </div>
+            {isVix && item.price > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                <VixTooltip price={item.price} vixHistory={vixHistory} isMobile={isMobile} />
+                {item.w52 && <RangeTooltip item={item} isMobile={isMobile} />}
+              </div>
+            )}
+            {!isVix && (
+              <div style={{ marginTop: 4 }}>
+                {item.w52 ? (
+                  <RangeTooltip item={item} isMobile={isMobile} />
+                ) : item.trend5d != null ? (
+                  <div style={{ fontSize: 10, color: C.textDim }}>
+                    5d: <span style={{ color: item.trend5d > 0 ? C.green : item.trend5d < 0 ? C.red : C.textDim }}>{item.trend5d > 0 ? "+" : ""}{item.trend5d.toFixed(1)}%</span>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-  // Category display names + icons
-  const categoryMeta = {
-    indices: { label: "Indizes", icon: "\uD83D\uDCC8" },
-    volatility: { label: "Volatilitaet", icon: "\u26A1" },
-    bonds: { label: "Anleihen", icon: "\uD83C\uDFE6" },
-    commodities: { label: "Rohstoffe", icon: "\uD83E\uDD47" },
-    crypto: { label: "Krypto", icon: "\u20BF" },
-    currencies: { label: "Waehrungen", icon: "\uD83D\uDCB1" },
-    futures: { label: "Futures", icon: "\uD83D\uDD2E" },
-  };
+// ─── Indices Section (extracted from Macro) ───
+function IndicesSection({ macro, isMobile }) {
+  if (!macro?.length) return null;
+  const indicesGroup = macro.find(g => g.category === "indices");
+  if (!indicesGroup?.items?.length) return null;
+
+  return (
+    <GlassCard>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <span style={{ fontSize: 18 }}>{"\uD83D\uDCC8"}</span>
+        <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>Indizes</h3>
+      </div>
+      <MacroItemsGrid items={indicesGroup.items} isMobile={isMobile} />
+    </GlassCard>
+  );
+}
+
+// ─── Remaining Macro Section (VIX, Anleihen, Rohstoffe, Krypto, Waehrungen) ───
+function MacroRemainingSection({ macro, vixHistory, isMobile }) {
+  if (!macro?.length) return null;
+  const excludeCategories = new Set(["indices", "futures"]);
+  const remaining = macro.filter(g => !excludeCategories.has(g.category));
+  const allItems = remaining.flatMap(g => g.items);
+  if (allItems.length === 0) return null;
 
   return (
     <GlassCard>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
         <BarChart3 size={18} color={C.accent} />
-        <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>Makro-Ueberblick</h3>
+        <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>Makro-Daten</h3>
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
-        {macro.flatMap(group => group.items.map(item => {
-          const isVix = item.symbol === "^VIX";
-          // VIX special color logic
-          let priceColor = C.text;
-          if (isVix) {
-            priceColor = item.price >= 30 ? C.red : item.price >= 20 ? C.orange : item.price >= 15 ? C.yellow : C.green;
-          }
-          return (
-            <div key={item.symbol} style={{ background: C.bg, borderRadius: 12, padding: isMobile ? 10 : 12, border: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <span style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.name}
-                </span>
-                <TrendIcon change={item.change} />
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
-                <span style={{ color: priceColor, fontSize: isMobile ? 15 : 17, fontWeight: 700, fontFamily: "monospace" }}>
-                  {item.price?.toLocaleString("de-DE", { maximumFractionDigits: item.price > 100 ? 0 : 2 })}
-                </span>
-                <ChangeDisplay change={item.change} style={{ fontSize: 12 }} />
-              </div>
-              {/* VIX: special classification + history tooltip */}
-              {isVix && item.price > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                  <VixTooltip price={item.price} vixHistory={vixHistory} isMobile={isMobile} />
-                  {item.w52 && <RangeTooltip item={item} isMobile={isMobile} />}
-                </div>
-              )}
-              {/* All others: 52W range bar */}
-              {!isVix && (
-                <div style={{ marginTop: 4 }}>
-                  {item.w52 ? (
-                    <RangeTooltip item={item} isMobile={isMobile} />
-                  ) : item.trend5d != null ? (
-                    <div style={{ fontSize: 10, color: C.textDim }}>
-                      5d: <span style={{ color: item.trend5d > 0 ? C.green : item.trend5d < 0 ? C.red : C.textDim }}>{item.trend5d > 0 ? "+" : ""}{item.trend5d.toFixed(1)}%</span>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          );
-        }))}
-      </div>
+      <MacroItemsGrid items={allItems} vixHistory={vixHistory} isMobile={isMobile} />
     </GlassCard>
   );
 }
@@ -771,113 +643,6 @@ function IntermarketSection({ signals, isMobile }) {
   );
 }
 
-// ─── Sector Rotation Section ───
-function SectorSection({ sectors, regionFocus, isMobile }) {
-  const maxHits = Math.max(...sectors.map(s => s.hitCount), 1);
-
-  return (
-    <GlassCard>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        <BarChart3 size={18} color={C.accent} />
-        <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>Sektor-Rotation</h3>
-        <span style={{ color: C.textMuted, fontSize: 12 }}>{regionFocus === "EU" ? "\uD83C\uDDE9\uD83C\uDDEA DAX" : "\uD83C\uDDFA\uD83C\uDDF8 US"}</span>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {sectors.map((sector, i) => {
-          const barWidth = Math.max(8, (sector.hitCount / maxHits) * 100);
-          const barColor = sector.hitCount >= 3 ? C.green : sector.hitCount >= 2 ? C.yellow : C.textDim;
-          const topNames = (sector.topSymbols || []).map(s => typeof s === "object" ? s.symbol : s).slice(0, 3);
-
-          return (
-            <div key={i} style={{ background: C.bg, borderRadius: 10, padding: "10px 14px", border: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{sector.sector}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ color: C.textMuted, fontSize: 11 }}>Avg Swing: <span style={{ color: C.text, fontWeight: 600 }}>{Math.round(sector.avgSwingScore || 0)}</span></span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: barColor }}>{sector.hitCount}</span>
-                </div>
-              </div>
-              <div style={{ height: 6, background: `${C.border}`, borderRadius: 3, marginBottom: 6 }}>
-                <div style={{ height: "100%", width: `${barWidth}%`, background: barColor, borderRadius: 3, transition: "width .5s" }} />
-              </div>
-              {topNames.length > 0 && (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {topNames.map(sym => (
-                    <span key={sym} style={{ fontSize: 11, color: C.accent, background: `${C.accent}15`, borderRadius: 6, padding: "2px 8px" }}>{sym}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </GlassCard>
-  );
-}
-
-// ─── Scanner Hits Section ───
-function ScannerHitsSection({ hits, isMobile, onNavigate }) {
-  return (
-    <GlassCard>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Target size={18} color={C.accent} />
-          <h3 style={{ margin: 0, color: C.text, fontSize: 16, fontWeight: 700 }}>Scanner Top-Hits</h3>
-          <span style={{ color: C.textMuted, fontSize: 12 }}>({hits.length})</span>
-        </div>
-        {onNavigate && (
-          <button onClick={() => onNavigate("watchlist")} style={{
-            display: "flex", alignItems: "center", gap: 4, padding: "4px 12px", background: `${C.accent}20`, color: C.accent,
-            border: `1px solid ${C.accent}40`, borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600,
-          }}>
-            Watchlist <ArrowRight size={12} />
-          </button>
-        )}
-      </div>
-
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-              <th style={{ textAlign: "left", color: C.textMuted, fontSize: 11, fontWeight: 600, padding: "6px 8px" }}>Symbol</th>
-              <th style={{ textAlign: "right", color: C.textMuted, fontSize: 11, fontWeight: 600, padding: "6px 8px" }}>Kurs</th>
-              <th style={{ textAlign: "right", color: C.textMuted, fontSize: 11, fontWeight: 600, padding: "6px 8px" }}>Chg%</th>
-              {!isMobile && <th style={{ textAlign: "center", color: C.textMuted, fontSize: 11, fontWeight: 600, padding: "6px 8px" }}>Swing</th>}
-              <th style={{ textAlign: "center", color: C.textMuted, fontSize: 11, fontWeight: 600, padding: "6px 8px" }}>Score</th>
-              {!isMobile && <th style={{ textAlign: "left", color: C.textMuted, fontSize: 11, fontWeight: 600, padding: "6px 8px" }}>Signale</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {hits.map((h, i) => (
-              <tr key={i} style={{ borderBottom: `1px solid ${C.border}40` }}>
-                <td style={{ padding: "8px", color: C.text, fontWeight: 700 }}>
-                  {h.symbol}
-                  {h.currency && <span style={{ color: C.textDim, fontSize: 10, marginLeft: 4 }}>{h.currency}</span>}
-                </td>
-                <td style={{ padding: "8px", textAlign: "right", color: C.text, fontFamily: "monospace" }}>
-                  {h.price?.toLocaleString("de-DE", { maximumFractionDigits: h.price > 100 ? 0 : 2 })}
-                </td>
-                <td style={{ padding: "8px", textAlign: "right" }}><ChangeDisplay change={h.change} /></td>
-                {!isMobile && <td style={{ padding: "8px", textAlign: "center" }}><ScoreBadge score={h.swingScore} size="small" /></td>}
-                <td style={{ padding: "8px", textAlign: "center" }}><ScoreBadge score={h.combinedScore} /></td>
-                {!isMobile && (
-                  <td style={{ padding: "8px" }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {(h.signals || []).slice(0, 2).map((s, j) => (
-                        <span key={j} style={{ fontSize: 10, color: C.textMuted, background: `${C.border}`, borderRadius: 4, padding: "2px 6px" }}>{s}</span>
-                      ))}
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </GlassCard>
-  );
-}
 
 // ─── Trade Setups Section ───
 function TradeSetupsSection({ setups, isMobile, onNavigate }) {
