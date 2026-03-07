@@ -2283,6 +2283,7 @@ export default function TradingJournal() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" && !navigator.onLine);
   const [calendarEvents, setCalendarEvents] = useState([]);
+  const [seasonalData, setSeasonalData] = useState(null);
   const [showKapital, setShowKapital] = useState(false);
   const ww = useWindowWidth();
   const isMobile = ww < 768;
@@ -2337,23 +2338,27 @@ export default function TradingJournal() {
   // localStorage Persistenz
   useEffect(() => { saveTrades(tradeList); }, [tradeList]);
 
-  // Fetch calendar events for sidebar widget
+  // Fetch calendar events + seasonal data for sidebar widgets
   useEffect(() => {
     if (!authed) return;
+    const extractSidebar = (src) => {
+      const seasonal = src?.morning?.seasonalContext || src?.afternoon?.seasonalContext || null;
+      const events = seasonal?.upcomingEvents || [];
+      setCalendarEvents(events.filter(e => e.impact === "high" || e.impact === "medium").slice(0, 3));
+      if (seasonal) setSeasonalData(seasonal);
+    };
     (async () => {
       try {
-        // Use cached briefing data if available
         const cached = localStorage.getItem("ncapital-briefing-cache");
         if (cached) {
           const { data } = JSON.parse(cached);
-          const events = data?.morning?.seasonalContext?.upcomingEvents || data?.afternoon?.seasonalContext?.upcomingEvents || [];
-          if (events.length > 0) { setCalendarEvents(events.filter(e => e.impact === "high" || e.impact === "medium").slice(0, 3)); return; }
+          extractSidebar(data);
+          if (data?.morning?.seasonalContext || data?.afternoon?.seasonalContext) return;
         }
         const res = await authFetch(`${PROXY_BASE}/api/briefing/latest`);
         if (res.ok) {
           const json = await res.json();
-          const events = json?.morning?.seasonalContext?.upcomingEvents || json?.afternoon?.seasonalContext?.upcomingEvents || [];
-          setCalendarEvents(events.filter(e => e.impact === "high" || e.impact === "medium").slice(0, 3));
+          extractSidebar(json);
         }
       } catch {}
     })();
@@ -2454,6 +2459,38 @@ export default function TradingJournal() {
             ))}
           </div>
           <div style={{ marginTop: "auto" }}>
+            {/* Saisonale Einordnung Widget */}
+            {seasonalData && (() => {
+              const sp = typeof seasonalData.monthPattern?.sp500Avg === "string" ? parseFloat(seasonalData.monthPattern.sp500Avg) : seasonalData.monthPattern?.sp500Avg;
+              const dx = typeof seasonalData.monthPattern?.daxAvg === "string" ? parseFloat(seasonalData.monthPattern.daxAvg) : seasonalData.monthPattern?.daxAvg;
+              const spC = sp > 0.5 ? C.green : sp < -0.2 ? C.red : C.yellow;
+              const dxC = dx > 0.5 ? C.green : dx < -0.2 ? C.red : C.yellow;
+              return (
+                <div onClick={() => setPage("briefing")} style={{ padding: "10px 12px", borderRadius: 12, background: `${C.accent}08`, border: `1px solid ${C.accent}15`, marginBottom: 10, cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                    <Calendar size={13} color={C.accent} />
+                    <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.05em" }}>Saisonalität</span>
+                    <span style={{ fontSize: 10, color: C.textDim, marginLeft: "auto" }}>{seasonalData.monthName}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+                    <div>
+                      <span style={{ fontSize: 9, color: C.textDim }}>S&P </span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: spC, fontFamily: "monospace" }}>{sp > 0 ? "+" : ""}{typeof sp === "number" ? sp.toFixed(1) : sp}%</span>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: 9, color: C.textDim }}>DAX </span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: dxC, fontFamily: "monospace" }}>{dx > 0 ? "+" : ""}{typeof dx === "number" ? dx.toFixed(1) : dx}%</span>
+                    </div>
+                  </div>
+                  {seasonalData.presidentialCycle && (
+                    <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.4 }}>
+                      <span style={{ color: C.accentLight, fontWeight: 600 }}>{seasonalData.presidentialCycle.name}</span>
+                      <span style={{ color: C.textDim }}> · Jahr {seasonalData.presidentialCycle.year}/4</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {/* Wirtschaftskalender Widget */}
             {calendarEvents.length > 0 && (
               <div onClick={() => setPage("briefing")} style={{ padding: "10px 12px", borderRadius: 12, background: `${C.orange}08`, border: `1px solid ${C.orange}15`, marginBottom: 10, cursor: "pointer" }}>
