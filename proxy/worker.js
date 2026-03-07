@@ -295,9 +295,9 @@ async function handleAuthRoutes(url, request, env) {
     try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
     const { username, password } = body;
     if (!username || !password) return jsonResponse({ error: "Username und Passwort erforderlich" }, 400);
-    if (username.length < 3 || username.length > 30) return jsonResponse({ error: "Username: 3-30 Zeichen" }, 400);
+    if (username.length < 3 || username.length > 60) return jsonResponse({ error: "Username: 3-60 Zeichen" }, 400);
     if (password.length < 6) return jsonResponse({ error: "Passwort: mindestens 6 Zeichen" }, 400);
-    if (!/^[a-zA-Z0-9_-]+$/.test(username)) return jsonResponse({ error: "Username: nur Buchstaben, Zahlen, -, _" }, 400);
+    if (!/^[a-zA-Z0-9_@.\-]+$/.test(username)) return jsonResponse({ error: "Username: Buchstaben, Zahlen, -, _, @, ." }, 400);
 
     const existing = await env.NCAPITAL_KV.get(`user:${username.toLowerCase()}`);
     if (existing) return jsonResponse({ error: "Username bereits vergeben" }, 409);

@@ -24,8 +24,23 @@ const C = {
 };
 
 // ─── Startkapital, Gebühren & Initiale Trade-Daten ───
-const STARTKAPITAL = 45691.59;
+const DEFAULT_STARTKAPITAL = 45691.59;
 const GEBUEHR_PRO_ORDER = 7.90; // flatex: 5,90€ Provision + 2,00€ Regulierung
+
+// Per-User Startkapital aus localStorage laden
+function getStartkapital() {
+  const user = getUser();
+  if (!user) return DEFAULT_STARTKAPITAL;
+  const key = `ncapital-startkapital-${user.username.toLowerCase()}`;
+  const saved = localStorage.getItem(key);
+  return saved ? parseFloat(saved) : DEFAULT_STARTKAPITAL;
+}
+function setStartkapital(value) {
+  const user = getUser();
+  if (!user) return;
+  const key = `ncapital-startkapital-${user.username.toLowerCase()}`;
+  localStorage.setItem(key, String(value));
+}
 
 const INITIAL_TRADES = [
   { id: 1, symbol: "SAP", setup: "Mean Reversion", score: 75, ampel: "ORANGE", stopLoss: 164.50, ziel: 192.00, waehrung: "EUR", historical: true,
@@ -78,10 +93,18 @@ function migrateTrade(oldTrade) {
   return { ...rest, transactions: txs };
 }
 
-// ─── localStorage Persistenz ───
-const STORAGE_KEY = "ncapital-trades";
-const VERSION_KEY = "ncapital-trades-version";
+// ─── localStorage Persistenz (per-User) ───
 const CURRENT_VERSION = 3;
+function getUserStorageKey() {
+  const user = getUser();
+  const suffix = user ? `-${user.username.toLowerCase()}` : "";
+  return `ncapital-trades${suffix}`;
+}
+function getUserVersionKey() {
+  const user = getUser();
+  const suffix = user ? `-${user.username.toLowerCase()}` : "";
+  return `ncapital-trades-version${suffix}`;
+}
 
 // Migration v3: USD-Trades → EUR umrechnen (alle Preise in EUR, einheitliches Log)
 function migrateUsdToEur(trade) {
@@ -103,13 +126,29 @@ function migrateUsdToEur(trade) {
 
 function loadTrades() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const version = parseInt(localStorage.getItem(VERSION_KEY)) || 1;
+    const storageKey = getUserStorageKey();
+    const versionKey = getUserVersionKey();
+    const saved = localStorage.getItem(storageKey);
+    const version = parseInt(localStorage.getItem(versionKey)) || 1;
     if (saved) {
       let parsed = JSON.parse(saved);
       if (version < 2) parsed = parsed.map(migrateTrade);
       if (version < 3) parsed = parsed.map(migrateUsdToEur);
-      localStorage.setItem(VERSION_KEY, String(CURRENT_VERSION));
+      localStorage.setItem(versionKey, String(CURRENT_VERSION));
+      const savedIds = new Set(INITIAL_TRADES.map(t => t.id));
+      const newTrades = parsed.filter(t => !savedIds.has(t.id));
+      return [...INITIAL_TRADES, ...newTrades];
+    }
+    // Fallback: alte globale Daten migrieren (einmaliger Uebergang)
+    const legacySaved = localStorage.getItem("ncapital-trades");
+    if (legacySaved) {
+      let parsed = JSON.parse(legacySaved);
+      const legacyVersion = parseInt(localStorage.getItem("ncapital-trades-version")) || 1;
+      if (legacyVersion < 2) parsed = parsed.map(migrateTrade);
+      if (legacyVersion < 3) parsed = parsed.map(migrateUsdToEur);
+      // Zu per-User Key speichern
+      localStorage.setItem(storageKey, JSON.stringify(parsed));
+      localStorage.setItem(versionKey, String(CURRENT_VERSION));
       const savedIds = new Set(INITIAL_TRADES.map(t => t.id));
       const newTrades = parsed.filter(t => !savedIds.has(t.id));
       return [...INITIAL_TRADES, ...newTrades];
@@ -119,8 +158,10 @@ function loadTrades() {
 }
 function saveTrades(tradeList) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tradeList));
-    localStorage.setItem(VERSION_KEY, String(CURRENT_VERSION));
+    const storageKey = getUserStorageKey();
+    const versionKey = getUserVersionKey();
+    localStorage.setItem(storageKey, JSON.stringify(tradeList));
+    localStorage.setItem(versionKey, String(CURRENT_VERSION));
   } catch (e) { /* ignore */ }
 }
 
@@ -2159,13 +2200,15 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
 // ════════════════════════════════════════════════════════════════
 // ─── SETTINGS PAGE ───
 // ════════════════════════════════════════════════════════════════
-const SettingsPage = () => {
+const SettingsPage = ({ currentStartkapital, onStartkapitalChange }) => {
   const user = getUser();
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [kapitalInput, setKapitalInput] = useState(String(Math.round(currentStartkapital * 100) / 100));
+  const [kapitalSaved, setKapitalSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null); // { type: "success"|"error", text }
 
@@ -2226,6 +2269,48 @@ const SettingsPage = () => {
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{user?.username || "–"}</div>
             <div style={{ fontSize: 12, color: C.textDim }}>Angemeldet</div>
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* Depot-Konfiguration */}
+      <GlassCard style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <DollarSign size={18} color={C.green} />
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>Depot-Konfiguration</div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, display: "block", marginBottom: 6 }}>Startkapital (EUR)</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="number" value={kapitalInput} onChange={e => { setKapitalInput(e.target.value); setKapitalSaved(false); }}
+              placeholder="z.B. 45000" step="0.01"
+              style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 14, fontWeight: 500, outline: "none" }}
+              onFocus={e => e.target.style.borderColor = C.accent} onBlur={e => e.target.style.borderColor = C.border} />
+            <button onClick={() => {
+              const val = parseFloat(kapitalInput);
+              if (val > 0) {
+                setStartkapital(val);
+                if (onStartkapitalChange) onStartkapitalChange(val);
+                setKapitalSaved(true);
+                setTimeout(() => setKapitalSaved(false), 2000);
+              }
+            }} style={{
+              padding: "10px 18px", borderRadius: 10, border: "none",
+              background: `linear-gradient(135deg, ${C.green}, ${C.green}CC)`,
+              color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              <Save size={14} /> Speichern
+            </button>
+          </div>
+          {kapitalSaved && (
+            <div style={{ fontSize: 11, color: C.green, marginTop: 6, fontWeight: 500, display: "flex", alignItems: "center", gap: 4 }}>
+              <CheckCircle size={10} /> Startkapital gespeichert
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: C.textDim, marginTop: 6 }}>
+            Dein persoenliches Startkapital fuer die Portfolio-Berechnung und Position Sizing.
+            Jeder User hat sein eigenes Depot — kein Zugriff auf andere Konten.
           </div>
         </div>
       </GlassCard>
@@ -2303,13 +2388,19 @@ export default function TradingJournal() {
   const [authed, setAuthed] = useState(isAuthenticated());
   const [page, setPage] = useState("briefing");
   const [tradeList, setTradeList] = useState(loadTrades);
+  const [startkapital, setStartkapitalState] = useState(getStartkapital);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(typeof navigator !== "undefined" && !navigator.onLine);
   const ww = useWindowWidth();
   const isMobile = ww < 768;
 
   const handleLogout = useCallback(() => { authLogout(); setAuthed(false); }, []);
-  const handleLogin = useCallback(() => { setAuthed(true); }, []);
+  const handleLogin = useCallback(() => {
+    setAuthed(true);
+    // Trades und Startkapital fuer den neuen User laden
+    setTradeList(loadTrades());
+    setStartkapitalState(getStartkapital());
+  }, []);
 
   // Listen for auth errors (401) from authFetch
   useEffect(() => {
@@ -2330,7 +2421,7 @@ export default function TradingJournal() {
   // localStorage Persistenz
   useEffect(() => { saveTrades(tradeList); }, [tradeList]);
 
-  const portfolio = useMemo(() => computePortfolio(tradeList, STARTKAPITAL), [tradeList]);
+  const portfolio = useMemo(() => computePortfolio(tradeList, startkapital), [tradeList, startkapital]);
 
   const addTrade = useCallback((trade) => {
     setTradeList(prev => [...prev, trade]);
@@ -2369,7 +2460,7 @@ export default function TradingJournal() {
       case "trades": return <TradeLog tradeList={tradeList} onUpdateTrade={updateTrade} onDeleteTrade={deleteTrade} onAddTrade={addTrade} />;
       case "dashboard": return <Dashboard portfolio={portfolio} />;
       case "watchlist": return <Watchlist onNavigate={navigate} />;
-      case "settings": return <SettingsPage />;
+      case "settings": return <SettingsPage currentStartkapital={startkapital} onStartkapitalChange={v => setStartkapitalState(v)} />;
       default: return null;
     }
   };
