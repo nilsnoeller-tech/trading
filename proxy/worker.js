@@ -1806,14 +1806,8 @@ function computeCompositeScore(candles) {
     };
   }
 
-  // ── ADJUSTED SCORE (for ranking, factors in R:R quality) ──
-  let adjustedScore = compositeScore;
-  if (tradePlan && tradePlan.rr > 0) {
-    adjustedScore = Math.round((compositeScore * (1 + 0.15 * Math.log(tradePlan.rr))) * 10) / 10;
-  }
-
   return {
-    compositeScore, adjustedScore, confidence, direction, tradePlan,
+    compositeScore, confidence, direction, tradePlan,
     breakdown: {
       trend: Math.round(trendScore * 10) / 10,
       rsi: rsiScore, macd: macdScore, ma: maScore, volume: volumeScore,
