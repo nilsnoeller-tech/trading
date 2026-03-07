@@ -3519,6 +3519,8 @@ async function handleScanRoutes(url, request, env) {
     return jsonResponse(taData, 200, 60);
   }
 
+
+
   // GET /api/scan/debug — current accumulator data for debugging
   if (path === "/api/scan/debug" && request.method === "GET") {
     const live = await env.NCAPITAL_KV.get("scan:live", "json");
