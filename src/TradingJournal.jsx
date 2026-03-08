@@ -1464,6 +1464,7 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
   const [editInputs, setEditInputs] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null); // tradeId awaiting delete confirmation
   const [newTradeModal, setNewTradeModal] = useState(false);
+  const [newTradeError, setNewTradeError] = useState("");
   const [newTradeInputs, setNewTradeInputs] = useState({
     symbol: "", waehrung: "EUR", wechselkurs: "", botScore: "",
     stopLoss: "", ziel: "", datum: new Date().toISOString().split("T")[0], stueckzahl: "", kaufkurs: "",
@@ -1498,7 +1499,14 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
     const z = parseFloat(newTradeInputs.ziel);
     const stueck = parseInt(newTradeInputs.stueckzahl);
     const kk = parseFloat(newTradeInputs.kaufkurs);
-    if (!newTradeInputs.symbol.trim() || !sl || !z || !stueck || !kk) return;
+    const missing = [];
+    if (!newTradeInputs.symbol.trim()) missing.push("Symbol");
+    if (!sl) missing.push("Stop-Loss");
+    if (!z) missing.push("Zielkurs");
+    if (!stueck) missing.push("Stueckzahl");
+    if (!kk) missing.push("Kaufkurs");
+    if (missing.length > 0) { setNewTradeError(`Fehlende Pflichtfelder: ${missing.join(", ")}`); return; }
+    setNewTradeError("");
     const isUsd = newTradeInputs.waehrung === "USD";
     const fx = parseFloat(newTradeInputs.wechselkurs) || 0.93;
     const slEur = isUsd ? Math.round(sl * fx * 100) / 100 : sl;
@@ -1527,6 +1535,7 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
     onAddTrade(newTrade);
     setNewTradeModal(false);
     setPendingScreenshot(null);
+    setNewTradeError("");
     setNewTradeInputs({ symbol: "", waehrung: "EUR", wechselkurs: "", botScore: "", stopLoss: "", ziel: "", datum: new Date().toISOString().split("T")[0], stueckzahl: "", kaufkurs: "" });
   };
 
@@ -1841,6 +1850,11 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
               <span>CRV: <strong style={{ color: C.text }}>{((parseFloat(newTradeInputs.ziel) - parseFloat(newTradeInputs.kaufkurs)) / Math.abs(parseFloat(newTradeInputs.kaufkurs) - parseFloat(newTradeInputs.stopLoss))).toFixed(1)}:1</strong></span>
               <span>Risiko/Stk: <strong style={{ color: C.red }}>{Math.abs(parseFloat(newTradeInputs.kaufkurs) - parseFloat(newTradeInputs.stopLoss)).toFixed(2)}</strong></span>
               <span>Ampel: <strong style={{ color: ampelColor(parseInt(newTradeInputs.botScore) >= 78 ? "GRÜN" : parseInt(newTradeInputs.botScore) >= 55 ? "ORANGE" : parseInt(newTradeInputs.botScore) >= 35 ? "ROT" : parseInt(newTradeInputs.botScore) > 0 ? "NICHT TRADEN" : "MANUELL") }}>{parseInt(newTradeInputs.botScore) >= 78 ? "GRÜN" : parseInt(newTradeInputs.botScore) >= 55 ? "ORANGE" : parseInt(newTradeInputs.botScore) >= 35 ? "ROT" : parseInt(newTradeInputs.botScore) > 0 ? "NICHT TRADEN" : "MANUELL"}</strong></span>
+            </div>
+          )}
+          {newTradeError && (
+            <div style={{ padding: "8px 12px", borderRadius: 8, background: `${C.red}15`, border: `1px solid ${C.red}40`, color: C.red, fontSize: 13, fontWeight: 600, marginTop: 8 }}>
+              {newTradeError}
             </div>
           )}
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
