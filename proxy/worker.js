@@ -1593,9 +1593,152 @@ function computeIntradayScore(intradayCandles, dailyCandles) {
   return { total, factors, signals };
 }
 
+// ─── Volume Profile: VWAP + POC ───
+
+function calcDailyVWAP(candles, lookback = 20) {
+  const recent = candles.slice(-lookback);
+  let cumTPV = 0, cumVol = 0;
+  const vwap = [];
+  for (const c of recent) {
+    const tp = (c.high + c.low + c.close) / 3;
+    cumTPV += tp * c.volume;
+    cumVol += c.volume;
+    vwap.push(cumVol > 0 ? cumTPV / cumVol : tp);
+  }
+  return vwap.length > 0 ? vwap[vwap.length - 1] : null;
+}
+
+function calcPOC(candles, lookback = 50, buckets = 50) {
+  const recent = candles.slice(-lookback);
+  if (recent.length === 0) return null;
+  const low = Math.min(...recent.map(c => c.low));
+  const high = Math.max(...recent.map(c => c.high));
+  const range = high - low;
+  if (range <= 0) return null;
+  const bucketSize = range / buckets;
+  const volProfile = new Array(buckets).fill(0);
+  for (const c of recent) {
+    const tp = (c.high + c.low + c.close) / 3;
+    const idx = Math.min(Math.floor((tp - low) / bucketSize), buckets - 1);
+    volProfile[idx] += c.volume;
+  }
+  let maxIdx = 0;
+  for (let i = 1; i < buckets; i++) {
+    if (volProfile[i] > volProfile[maxIdx]) maxIdx = i;
+  }
+  return low + (maxIdx + 0.5) * bucketSize;
+}
+
+// ─── Mean-Reversion Scanner ───
+
+function computeMeanReversionScore(candles) {
+  if (!candles || candles.length < 60) return null;
+  const ind = extractIndicators(candles);
+  const closes = ind.closes;
+  const price = ind.currentPrice;
+  const atr = ind.atrLast || price * 0.02;
+
+  // 1. Oversold Score (max 3.0)
+  let oversoldScore = 0;
+  if (ind.rsi < 25) oversoldScore = 3.0;
+  else if (ind.rsi < 30) oversoldScore = 2.0;
+  else if (ind.rsi < 35) oversoldScore = 1.0;
+  else if (ind.rsi < 40) oversoldScore = 0.5;
+  else if (ind.rsi > 60) oversoldScore = -1.0;
+
+  // 2. Support Proximity (max 2.0)
+  let supportScore = 0;
+  const sma200 = ind.sma200;
+  const nearestSupport = ind.swingLows.filter(s => s < price && price - s <= 2 * atr);
+  if (nearestSupport.length > 0) {
+    const closest = Math.max(...nearestSupport);
+    const dist = (price - closest) / atr;
+    if (dist < 0.5) supportScore = 2.0;
+    else if (dist < 1.0) supportScore = 1.0;
+    else supportScore = 0.5;
+  }
+  if (sma200 && Math.abs(price - sma200) / atr < 1.0) supportScore = Math.max(supportScore, 1.5);
+
+  // 3. Bollinger Band Position (max 1.5)
+  let bbScore = 0;
+  if (ind.bbRelPos != null) {
+    if (ind.bbRelPos < 0) bbScore = 1.5;         // below lower BB
+    else if (ind.bbRelPos < 0.2) bbScore = 1.0;
+    else if (ind.bbRelPos < 0.5) bbScore = 0.5;
+    else if (ind.bbRelPos > 0.8) bbScore = -0.5;
+  }
+
+  // 4. Volume Climax (max 1.5)
+  let volClimaxScore = 0;
+  if (ind.volRatio >= 2.0 && ind.lastIsRed) volClimaxScore = 1.5;     // capitulation
+  else if (ind.volRatio >= 1.5 && ind.lastIsRed) volClimaxScore = 0.7;
+  else if (ind.pullbackVolDeclining) volClimaxScore = 0.5;
+
+  // 5. Quality Filter (max 2.0) — always >= 1.0 since we scan SP100/DAX40
+  let qualityScore = 1.0;
+  if (sma200 && price > sma200 * 0.85) qualityScore = 2.0;
+  else if (sma200 && price > sma200 * 0.75) qualityScore = 1.5;
+
+  const mrScore = Math.round((oversoldScore + supportScore + bbScore + volClimaxScore + qualityScore) * 10) / 10;
+
+  // Trade plan for mean reversion (target = EMA20)
+  let mrTradePlan = null;
+  if (mrScore >= 5.0 && ind.rsi < 40) {
+    const entry = Math.round(price * 100) / 100;
+    const stop = Math.round((price - 1.5 * atr) * 100) / 100;
+    const target = Math.round(ind.e20 * 100) / 100;
+    if (target > entry) {
+      const risk = entry - stop;
+      const reward = target - entry;
+      const rr = risk > 0 ? Math.round((reward / risk) * 10) / 10 : 0;
+      const maxRisk = 225; // EUR 225 (0.5% of 45k)
+      const shares = risk > 0 ? Math.floor(maxRisk / risk) : 0;
+      mrTradePlan = {
+        entry, stop, target,
+        risk: Math.round(risk * 100) / 100,
+        reward: Math.round(reward * 100) / 100,
+        rr, shares,
+        type: "MEAN_REVERSION",
+      };
+    }
+  }
+
+  return {
+    mrScore,
+    direction: mrScore >= 5.0 && ind.rsi < 40 ? "LONG_MR" : "NEUTRAL",
+    tradePlan: mrTradePlan,
+    breakdown: { oversold: oversoldScore, support: supportScore, bb: bbScore, volClimax: volClimaxScore, quality: qualityScore },
+  };
+}
+
+// ─── Market Regime Detection ───
+
+function detectMarketRegime(indexCloses, sma200val, vixPrice) {
+  if (!indexCloses || indexCloses.length < 50) return "MODERATE_BULL"; // fallback
+  const price = indexCloses[indexCloses.length - 1];
+  const sma50Arr = calcSMA(indexCloses.slice(-70), 50);
+  const sma50val = sma50Arr.length > 0 ? sma50Arr[sma50Arr.length - 1] : price;
+  const sma50slope = sma50Arr.length >= 20
+    ? (sma50val - sma50Arr[sma50Arr.length - 20]) / sma50Arr[sma50Arr.length - 20] * 100
+    : 0;
+
+  if (price > sma200val && sma50val > sma200val && sma50slope > 0.3 && vixPrice < 20) return "STRONG_BULL";
+  if (price > sma200val && vixPrice < 25) return "MODERATE_BULL";
+  if (Math.abs(price - sma200val) / sma200val < 0.03 && vixPrice >= 18) return "TRANSITION";
+  if (price < sma200val && vixPrice < 30) return "MODERATE_BEAR";
+  return "CRISIS"; // price < SMA200 && VIX >= 30
+}
+
+const REGIME_PARAMS = {
+  STRONG_BULL:   { scoreThreshold: 6.0, maxPositions: 8, riskPct: 1.2, stopATR: 1.5, rsMax: 25, ema20Max: 3.0, sectorMax: 4 },
+  MODERATE_BULL: { scoreThreshold: 6.5, maxPositions: 5, riskPct: 1.0, stopATR: 1.5, rsMax: 20, ema20Max: 2.5, sectorMax: 3 },
+  TRANSITION:    { scoreThreshold: 7.0, maxPositions: 3, riskPct: 0.7, stopATR: 1.2, rsMax: 15, ema20Max: 2.0, sectorMax: 2 },
+  MODERATE_BEAR: { scoreThreshold: 5.5, maxPositions: 3, riskPct: 0.5, stopATR: 1.0, rsMax: 15, ema20Max: 2.0, sectorMax: 2 },
+  CRISIS:        { scoreThreshold: 6.0, maxPositions: 2, riskPct: 0.5, stopATR: 2.0, rsMax: 15, ema20Max: 2.0, sectorMax: 2 },
+};
+
 // ─── Composite TA Score (Citadel-Style Analysis) ───
-// Mirrors the scoring from generate_pdf_report.py
-// Score range: ~-11.0 to ~+11.0 (Trend D×1.5+W×1.0+M×0.5 + RSI + MACD + MA + Volume)
+// Score components: Trend (D×1.0+W×0.7+M×0.3) + RSI + MACD + MA + Volume + Breakout
 // Multi-timeframe trends approximated from daily data using SMA periods
 
 function computeCompositeScore(candles) {
@@ -1654,45 +1797,86 @@ function computeCompositeScore(candles) {
     monthlyTrend = weeklyTrend;
   }
 
-  const trendScore = dailyTrend * 1.5 + weeklyTrend * 1.0 + monthlyTrend * 0.5;
+  // Reduced trend weights (max ±4.0 instead of ±6.0) to balance with new components
+  const trendScore = dailyTrend * 1.0 + weeklyTrend * 0.7 + monthlyTrend * 0.3;
 
-  // ── 2. RSI (±1.5) ──
+  // ── 2. RSI (±2.0) ──
   let rsiScore = 0;
-  if (ind.rsi < 30) rsiScore = 1.5;
+  if (ind.rsi < 30 && trendScore > 0) rsiScore = 2.0;       // oversold in uptrend = ideal buy
+  else if (ind.rsi < 30) rsiScore = 1.5;
+  else if (ind.rsi < 40 && trendScore > 0) rsiScore = 1.0;
   else if (ind.rsi < 40) rsiScore = 0.5;
-  else if (ind.rsi > 70) rsiScore = -1.5;
-  else if (ind.rsi > 60) rsiScore = -0.3;
+  else if (ind.rsi > 80) rsiScore = -1.0;                    // extreme only
+  else if (ind.rsi > 70) rsiScore = -0.5;                    // reduced penalty (was -1.5)
+  else if (ind.rsi > 60) rsiScore = -0.2;
+  // RSI divergence bonus
+  if (ind.rsiBullDiv) rsiScore += 1.0;
+  rsiScore = Math.max(-2.0, Math.min(2.0, rsiScore));        // clamp
 
-  // ── 3. MACD Histogram (±1.0) ──
+  // ── 3. MACD Histogram (±1.5, graduated) ──
   const macdHist = ind.macd.histogram;
   let macdScore = 0;
   if (macdHist.length > 0) {
-    macdScore = macdHist[macdHist.length - 1] > 0 ? 1.0 : -1.0;
+    const lastHist = macdHist[macdHist.length - 1];
+    const prevHist = macdHist.length > 1 ? macdHist[macdHist.length - 2] : 0;
+    const histRising = lastHist > prevHist;
+    if (lastHist > 0 && histRising) macdScore = 1.5;          // positive and rising
+    else if (lastHist > 0) macdScore = 0.5;                   // positive but fading
+    else if (lastHist < 0 && histRising) macdScore = -0.3;    // negative but recovering
+    else if (lastHist < 0) macdScore = -1.5;                  // negative and falling
+    // Bonus for fresh bullish crossover (within 3 bars)
+    if (macdHist.length >= 3) {
+      const h3 = macdHist[macdHist.length - 3];
+      if (h3 < 0 && lastHist > 0) macdScore = Math.min(macdScore + 0.5, 1.5);
+    }
   }
 
-  // ── 4. MA Alignment (±2.0) ──
+  // ── 4. MA Alignment (±1.5, using EMA20 for faster response) ──
   let maScore = 0;
+  const ema20val = ind.e20;
   if (ind.sma200) {
-    if (price > sma20 && sma20 > ind.sma50 && ind.sma50 > ind.sma200) maScore = 2.0;       // Perfect Bull
-    else if (price < sma20 && sma20 < ind.sma50 && ind.sma50 < ind.sma200) maScore = -2.0;  // Perfect Bear
+    if (price > ema20val && ema20val > ind.sma50 && ind.sma50 > ind.sma200) maScore = 1.5;       // Perfect Bull (reduced from 2.0)
+    else if (price < ema20val && ema20val < ind.sma50 && ind.sma50 < ind.sma200) maScore = -1.5;  // Perfect Bear (reduced from -2.0)
     else if (price > ind.sma200) maScore = 0.5;
     else if (price < ind.sma200) maScore = -0.5;
   } else {
-    if (price > sma20 && sma20 > ind.sma50) maScore = 1.5;
-    else if (price < sma20 && sma20 < ind.sma50) maScore = -1.5;
-    else if (price > ind.sma50) maScore = 0.5;
-    else maScore = -0.5;
+    if (price > ema20val && ema20val > ind.sma50) maScore = 1.0;
+    else if (price < ema20val && ema20val < ind.sma50) maScore = -1.0;
+    else if (price > ind.sma50) maScore = 0.3;
+    else maScore = -0.3;
   }
 
-  // ── 5. Volume (±1.0) ──
+  // ── 5. Volume (±0.5, reduced weight, 5-day average + OBV) ──
   let volumeScore = 0;
-  if (ind.volRatio >= 1.5 && !ind.lastIsRed) volumeScore = 1.0;       // Strong buying
-  else if (ind.volRatio >= 1.2 && !ind.lastIsRed) volumeScore = 0.5;
-  else if (ind.volRatio >= 1.5 && ind.lastIsRed) volumeScore = -1.0;  // Strong selling
-  else if (ind.volRatio >= 1.2 && ind.lastIsRed) volumeScore = -0.5;
+  {
+    const last5vols = candles.slice(-5).map(c => c.volume);
+    const prev5vols = candles.slice(-10, -5).map(c => c.volume);
+    const avg5vol = last5vols.reduce((s, v) => s + v, 0) / 5;
+    const avgPrev5vol = prev5vols.length > 0 ? prev5vols.reduce((s, v) => s + v, 0) / prev5vols.length : avg5vol;
+    const vol5dTrend = avgPrev5vol > 0 ? (avg5vol - avgPrev5vol) / avgPrev5vol : 0;
+    const last5green = candles.slice(-5).filter(c => c.close >= c.open).length;
+    if (vol5dTrend > 0.2 && last5green >= 3) volumeScore = 0.5;         // volume up + bullish
+    else if (vol5dTrend > 0.2 && last5green < 2) volumeScore = -0.5;    // volume up + bearish
+    // OBV slope bonus
+    if (ind.obvRising && last5green >= 3) volumeScore = Math.min(volumeScore + 0.2, 0.5);
+  }
+
+  // ── 6. BREAKOUT PROXIMITY (±1.0) ──
+  let breakoutScore = 0;
+  {
+    const high20d = Math.max(...closes.slice(-20));
+    const high52w = Math.max(...closes);
+    const pctFrom20dHigh = (high20d - price) / high20d * 100;
+    const pctFrom52wHigh = (high52w - price) / high52w * 100;
+    if (pctFrom52wHigh < 2) breakoutScore += 0.5;       // near 52w high
+    if (pctFrom20dHigh < 1) breakoutScore += 0.5;       // near 20d high
+    // BB squeeze bonus
+    if (ind.bbSqueeze && ind.bbRelPos != null && ind.bbRelPos > 0.5) breakoutScore += 0.3;
+    breakoutScore = Math.min(1.0, breakoutScore);
+  }
 
   // ── COMPOSITE SCORE ──
-  const compositeScore = Math.round((trendScore + rsiScore + macdScore + maScore + volumeScore) * 10) / 10;
+  const compositeScore = Math.round((trendScore + rsiScore + macdScore + maScore + volumeScore + breakoutScore) * 10) / 10;
 
   // ── CONFIDENCE RATING ──
   let confidence;
@@ -1708,7 +1892,11 @@ function computeCompositeScore(candles) {
   let tradePlan = null;
   if (direction === "LONG") {
     const atr = ind.atrLast || price * 0.02;
-    const entry = Math.round((price - 0.5 * atr) * 100) / 100;
+    // Score-dependent entry mode: high conviction = market, otherwise pullback
+    const entryMode = compositeScore >= 8.0 ? "MARKET" : "PULLBACK";
+    const entry = entryMode === "MARKET"
+      ? Math.round(price * 100) / 100
+      : Math.round((price - 0.3 * atr) * 100) / 100;
 
     // ── STOP: Multi-Source Support Detection ──
     // Sammelt Support-Kandidaten aus mehreren Quellen fuer praezisere Stops
@@ -1840,28 +2028,49 @@ function computeCompositeScore(candles) {
     }
     const portfolioPct = Math.round((positionValue / 45000) * 1000) / 10;
 
+    // Partial profit at 1R
+    const partialTarget = Math.round((entry + (entry - stop)) * 100) / 100;
+
+    // Kelly-based position sizing (Half-Kelly, conservative)
+    // Kelly fraction = (WR * avgWin - (1-WR) * avgLoss) / avgWin
+    // Using backtested estimates: WR ~55%, avg win = 2R, avg loss = 1R
+    // Kelly = (0.55 * 2 - 0.45 * 1) / 2 = 0.325 → Half-Kelly = 16.25%
+    const kellyFraction = 0.1625;
+    const kellyRiskPerTrade = Math.min(45000 * kellyFraction * 0.01 * rr, 900); // max EUR 900
+    const kellyShares = risk > 0 ? Math.floor(kellyRiskPerTrade / risk) : 0;
+
     tradePlan = {
-      entry, stop, target,
+      entry, stop, target, entryMode,
       risk: Math.round(risk * 100) / 100,
       reward: Math.round(reward * 100) / 100,
       rr, shares: cappedShares, positionValue, portfolioPct,
       atr: Math.round(atr * 100) / 100,
+      partialTarget, partialPct: 50, trailingStopATR: 1.5,
+      kellySizing: { shares: kellyShares, riskPerTrade: Math.round(kellyRiskPerTrade * 100) / 100 },
     };
   }
+
+  // Volume Profile: VWAP + POC
+  const vwapVal = calcDailyVWAP(candles, 20);
+  const pocVal = calcPOC(candles, 50, 50);
 
   return {
     compositeScore, confidence, direction, tradePlan,
     breakdown: {
       trend: Math.round(trendScore * 10) / 10,
-      rsi: rsiScore, macd: macdScore, ma: maScore, volume: volumeScore,
+      rsi: rsiScore, macd: macdScore, ma: maScore, volume: volumeScore, breakout: breakoutScore,
     },
     indicators: {
       rsi: Math.round(ind.rsi * 10) / 10,
+      adx: Math.round(ind.adxVal * 10) / 10,
       macdHist: macdHist.length > 0 ? Math.round(macdHist[macdHist.length - 1] * 1000) / 1000 : 0,
+      ema20: Math.round(ema20val * 100) / 100,
       sma20: Math.round(sma20 * 100) / 100,
       sma50: Math.round(ind.sma50 * 100) / 100,
       sma200: ind.sma200 ? Math.round(ind.sma200 * 100) / 100 : null,
       atr: Math.round(ind.atrLast * 100) / 100,
+      vwap: vwapVal ? Math.round(vwapVal * 100) / 100 : null,
+      poc: pocVal ? Math.round(pocVal * 100) / 100 : null,
       dailyTrend: ["Stark Ab", "Ab", "Neutral", "Auf", "Stark Auf"][dailyTrend + 2],
       weeklyTrend: ["Stark Ab", "Ab", "Neutral", "Auf", "Stark Auf"][weeklyTrend + 2],
       monthlyTrend: ["Stark Ab", "Ab", "Neutral", "Auf", "Stark Auf"][monthlyTrend + 2],
@@ -1902,7 +2111,7 @@ function parseYahooCandles(json) {
 async function scanSymbolServer(symbol) {
   // singleHost=true to stay within Cloudflare subrequest limits (50 on free plan)
   const [dailyJson, intradayJson] = await Promise.all([
-    fetchYahooJSON(symbol, { range: "1y", interval: "1d", includeAdjustedClose: "true" }, 12000, true),
+    fetchYahooJSON(symbol, { range: "2y", interval: "1d", includeAdjustedClose: "true" }, 12000, true),
     fetchYahooJSON(symbol, { range: "5d", interval: "15m", includeAdjustedClose: "true" }, 12000, true),
   ]);
 
@@ -1916,6 +2125,7 @@ async function scanSymbolServer(symbol) {
   const swing = computeSwingScore(dailyCandles);
   const intraday = computeIntradayScore(intradayCandles, dailyCandles);
   const composite = computeCompositeScore(dailyCandles);
+  const mr = computeMeanReversionScore(dailyCandles);
 
   const lastCandle = dailyCandles[dailyCandles.length - 1];
   const prevCandle = dailyCandles.length >= 2 ? dailyCandles[dailyCandles.length - 2] : null;
@@ -1953,6 +2163,7 @@ async function scanSymbolServer(symbol) {
     swing,
     intraday,
     composite,
+    mr,
     timestamp: new Date().toISOString(),
   };
 }
@@ -2201,32 +2412,75 @@ async function runChunkedScan(env) {
 }
 
 async function processAndNotify(env, config, allResults) {
-  // ── Fetch index data for relative strength + market regime (2 subrequests) ──
+  // ── Fetch index data + VIX for relative strength + market regime (3 subrequests) ──
   let gspcReturn = 0, gdaxiReturn = 0;
   let gspcAboveSMA200 = true, gdaxiAboveSMA200 = true; // Default true (graceful degradation)
+  let vixPrice = 15; // Default moderate VIX
+  let usRegime = "MODERATE_BULL", daxRegime = "MODERATE_BULL"; // Default regimes
+  let gspcCloses = [], gdaxiCloses = [];
+  let gspcSMA200 = null, gdaxiSMA200 = null;
   try {
-    const [gspcJson, gdaxiJson] = await Promise.all([
-      fetchYahooJSON("^GSPC", { range: "1y", interval: "1d" }, 10000, true),
-      fetchYahooJSON("^GDAXI", { range: "1y", interval: "1d" }, 10000, true),
+    const [gspcJson, gdaxiJson, vixJson] = await Promise.all([
+      fetchYahooJSON("^GSPC", { range: "2y", interval: "1d" }, 10000, true),
+      fetchYahooJSON("^GDAXI", { range: "2y", interval: "1d" }, 10000, true),
+      fetchYahooJSON("^VIX", { range: "5d", interval: "1d" }, 10000, true),
     ]);
+
+    // Parse VIX
+    const vixParsed = !vixJson.error ? parseYahooCandles(vixJson) : null;
+    if (vixParsed && vixParsed.candles.length > 0) {
+      vixPrice = vixParsed.candles[vixParsed.candles.length - 1].close;
+    }
+
     for (const [sym, json] of [["^GSPC", gspcJson], ["^GDAXI", gdaxiJson]]) {
       const parsed = !json.error ? parseYahooCandles(json) : null;
       if (parsed && parsed.candles.length >= 20) {
         const c = parsed.candles.map(x => x.close);
         const ret = ((c[c.length - 1] - c[c.length - 20]) / c[c.length - 20]) * 100;
-        // SMA200 for market regime filter
+        // SMA200 for market regime filter (with hysteresis)
         const sma200 = c.length >= 200
           ? c.slice(c.length - 200).reduce((s, v) => s + v, 0) / 200
           : null;
-        const aboveSMA200 = sma200 ? c[c.length - 1] > sma200 : true;
-        if (sym === "^GSPC") { gspcReturn = Math.round(ret * 100) / 100; gspcAboveSMA200 = aboveSMA200; }
-        else { gdaxiReturn = Math.round(ret * 100) / 100; gdaxiAboveSMA200 = aboveSMA200; }
+        // Hysteresis buffer: OFF when < SMA200 * 0.985, ON when > SMA200 * 1.01
+        let aboveSMA200 = true;
+        if (sma200) {
+          const currentPrice = c[c.length - 1];
+          if (currentPrice < sma200 * 0.985) aboveSMA200 = false;        // clearly below
+          else if (currentPrice > sma200 * 1.01) aboveSMA200 = true;      // clearly above
+          // else: in the middle zone, keep default true (benefit of the doubt)
+        }
+        if (sym === "^GSPC") {
+          gspcReturn = Math.round(ret * 100) / 100;
+          gspcAboveSMA200 = aboveSMA200;
+          gspcCloses = c;
+          gspcSMA200 = sma200;
+        } else {
+          gdaxiReturn = Math.round(ret * 100) / 100;
+          gdaxiAboveSMA200 = aboveSMA200;
+          gdaxiCloses = c;
+          gdaxiSMA200 = sma200;
+        }
       }
     }
-    console.log(`[Scan] Index 20d returns: S&P ${gspcReturn}%, DAX ${gdaxiReturn}% | Regime: S&P ${gspcAboveSMA200 ? "BULL" : "BEAR"}, DAX ${gdaxiAboveSMA200 ? "BULL" : "BEAR"}`);
+
+    // Detect market regime for each index
+    if (gspcCloses.length > 0 && gspcSMA200) {
+      usRegime = detectMarketRegime(gspcCloses, gspcSMA200, vixPrice);
+    }
+    if (gdaxiCloses.length > 0 && gdaxiSMA200) {
+      daxRegime = detectMarketRegime(gdaxiCloses, gdaxiSMA200, vixPrice);
+    }
+
+    console.log(`[Scan] Index 20d returns: S&P ${gspcReturn}%, DAX ${gdaxiReturn}% | VIX: ${vixPrice.toFixed(1)} | Regime: S&P ${usRegime}, DAX ${daxRegime}`);
   } catch (e) {
     console.log(`[Scan] Index returns fetch failed: ${e.message}`);
   }
+
+  // Regime-dependent parameters (use the more conservative regime)
+  const effectiveRegime = REGIME_PARAMS[usRegime] && REGIME_PARAMS[daxRegime]
+    ? (REGIME_PARAMS[usRegime].scoreThreshold >= REGIME_PARAMS[daxRegime].scoreThreshold ? usRegime : daxRegime)
+    : usRegime;
+  const regimeParams = REGIME_PARAMS[effectiveRegime] || REGIME_PARAMS.MODERATE_BULL;
 
   // Enrich all results with relative strength vs index
   for (const r of allResults) {
@@ -2260,22 +2514,33 @@ async function processAndNotify(env, config, allResults) {
     return { total: arr.length, positive: pos, negative: neg, unchanged: unch, avgChange: Math.round(avgChg * 100) / 100 };
   };
 
-  // ── Composite TA Picks: LONG with optimized filters (Backtest V2 + RS-Analyse) ──
-  // Filters: R:R >= 1.4, RS 0–15% (Sweet Spot), EMA20 < 2 ATR, Market Regime
+  // ── Composite TA Picks: LONG with regime-dependent filters ──
+  // Score threshold: 6.5 (down from 7.5), with tier system
+  // Filters: R:R >= 1.4, RS 0–20%, EMA20 < regime.ema20Max ATR, ADX > 20, Market Regime
+  const scoreThreshold = regimeParams.scoreThreshold;
   const unfilteredPicks = allResults
-    .filter((r) => r.composite && r.composite.direction === "LONG" && r.composite.compositeScore >= 7.5 && r.composite.tradePlan && r.composite.tradePlan.rr >= 1.4);
+    .filter((r) => r.composite && r.composite.direction === "LONG" && r.composite.compositeScore >= 6.5 && r.composite.tradePlan && r.composite.tradePlan.rr >= 1.4);
   const taPicksFiltered = unfilteredPicks
     .filter((r) => {
-      // Market Regime: skip if benchmark index below SMA200
+      // Market Regime: skip if benchmark index below SMA200 (with hysteresis)
       const isDE = r.symbol.endsWith(".DE");
       if (isDE && !gdaxiAboveSMA200) return false;
       if (!isDE && !gspcAboveSMA200) return false;
-      // Relative Strength 0–15% (Sweet Spot: >15% = sinkende Win-Rate, <0% = Mean-Reversion)
-      if (r.relStrengthVsIndex != null && (r.relStrengthVsIndex <= 0 || r.relStrengthVsIndex > 15)) return false;
-      // EMA20 distance < 2.0 ATR (not overextended)
-      if (r.ema20Distance != null && Math.abs(r.ema20Distance) > 2.0) return false;
+      // Relative Strength 0–20% (expanded from 15%)
+      if (r.relStrengthVsIndex != null && (r.relStrengthVsIndex <= 0 || r.relStrengthVsIndex > regimeParams.rsMax)) return false;
+      // EMA20 distance < regime ema20Max ATR (not overextended)
+      if (r.ema20Distance != null && Math.abs(r.ema20Distance) > regimeParams.ema20Max) return false;
+      // ADX > 20 (minimum trend strength for trend-following picks)
+      if (r.composite?.indicators?.adx != null && r.composite.indicators.adx < 20) return false;
+      // Regime-dependent score threshold
+      if (r.composite.compositeScore < scoreThreshold) return false;
       return true;
     })
+    .map((r) => ({
+      ...r,
+      // Add tier: HIGH_CONVICTION (>= 7.5) or STANDARD (>= 6.5)
+      tier: r.composite.compositeScore >= 7.5 ? "HIGH_CONVICTION" : "STANDARD",
+    }))
     .sort((a, b) => {
       // Rank by backtested predictors: RS sweet spot + EMA20 proximity + R:R
       const rsScore = (v) => {
@@ -2296,7 +2561,7 @@ async function processAndNotify(env, config, allResults) {
       return rank(b) - rank(a);
     });
 
-  // Sector Limit: max 2 picks per sector (diversification)
+  // Sector Limit: max sectorMax picks per sector (regime-dependent diversification)
   const sectorPickCount = {};
   const taPicks = [];
   for (const r of taPicksFiltered) {
@@ -2308,8 +2573,17 @@ async function processAndNotify(env, config, allResults) {
       if (syms.includes(sym)) { sector = s; break; }
     }
     sectorPickCount[sector] = (sectorPickCount[sector] || 0) + 1;
-    if (sectorPickCount[sector] <= 2) taPicks.push(r);
-    if (taPicks.length >= 20) break; // Cap at 20
+    if (sectorPickCount[sector] <= regimeParams.sectorMax) taPicks.push(r);
+    if (taPicks.length >= regimeParams.maxPositions * 3) break; // Cap at 3x maxPositions
+  }
+
+  // ── Mean-Reversion Picks (only in TRANSITION / MODERATE_BEAR / CRISIS) ──
+  let mrPicks = [];
+  if (["TRANSITION", "MODERATE_BEAR", "CRISIS"].includes(usRegime) || ["TRANSITION", "MODERATE_BEAR", "CRISIS"].includes(daxRegime)) {
+    mrPicks = allResults
+      .filter(r => r.mr && r.mr.direction === "LONG_MR" && r.mr.mrScore >= 5.0 && r.mr.tradePlan)
+      .sort((a, b) => b.mr.mrScore - a.mr.mrScore)
+      .slice(0, 10);
   }
 
   // ── ATR-based Daily Movers (>= 3 ATR move) ──
@@ -2322,11 +2596,15 @@ async function processAndNotify(env, config, allResults) {
   const stats = {
     totalScanned: allResults.length,
     hits: filtered.length,
+    unfilteredPicks: unfilteredPicks.length,
+    longPicks: taPicks.length,
     taPicks: taPicks.length,
+    mrPicks: mrPicks.length,
     movers: movers.length,
     errors: allResults.filter((r) => r.swing.error || r.intraday.error).length,
     timestamp: new Date().toISOString(),
     breadth: { dax: breadth(daxAll), sp100: breadth(spAll) },
+    marketRegime: { sp500: usRegime, dax: daxRegime, vix: Math.round(vixPrice * 10) / 10 },
   };
 
   // ── Market-Merge: prevent sp100-only scan from erasing DAX picks (and vice versa) ──
@@ -2362,8 +2640,15 @@ async function processAndNotify(env, config, allResults) {
     currency: r.currency, price: r.price, change: r.change, atr: r.atr,
     ema20Distance: r.ema20Distance, relStrengthVsIndex: r.relStrengthVsIndex,
     composite: r.composite, swing: { total: r.swing.total, setup: r.swing.setup, setupEmoji: r.swing.setupEmoji },
+    tier: r.tier || "STANDARD",
     sector: sectorMap[r.symbol] || null,
     sectorAvgChange: sectorMap[r.symbol] ? (sectorAvgMap[sectorMap[r.symbol]] ?? null) : null,
+  }));
+  const currentMrPicksMapped = mrPicks.map((r) => ({
+    symbol: r.symbol, displaySymbol: r.displaySymbol, name: r.name,
+    currency: r.currency, price: r.price, change: r.change, atr: r.atr,
+    mr: r.mr,
+    sector: sectorMap[r.symbol] || null,
   }));
   const currentMoversMapped = movers.map((r) => ({
     symbol: r.symbol, displaySymbol: r.displaySymbol, name: r.name,
@@ -2375,6 +2660,7 @@ async function processAndNotify(env, config, allResults) {
   let kvPicks = [...currentPicksMapped];
   let kvMovers = [...currentMoversMapped];
   let kvHits = [...currentHitsMapped];
+  let kvMrPicks = [...currentMrPicksMapped];
   let mergedBreadth = { ...stats.breadth };
 
   if (scanScope !== "both") {
@@ -2394,6 +2680,10 @@ async function processAndNotify(env, config, allResults) {
       if (existingTA?.movers) {
         const kept = existingTA.movers.filter((m) => keepFilter(m.symbol));
         kvMovers.push(...kept);
+      }
+      if (existingTA?.mrPicks) {
+        const kept = existingTA.mrPicks.filter((m) => keepFilter(m.symbol));
+        kvMrPicks.push(...kept);
       }
       if (existingScan?.hits) {
         const kept = existingScan.hits.filter((h) => keepFilter(h.symbol));
@@ -2422,30 +2712,31 @@ async function processAndNotify(env, config, allResults) {
   kvPicks = dedup(kvPicks).sort((a, b) => kvRank(b) - kvRank(a)).slice(0, 20);
   kvMovers = dedup(kvMovers).sort((a, b) => (b.atrMultiple || 0) - (a.atrMultiple || 0));
   kvHits = dedup(kvHits).sort((a, b) => (b.swing?.total || 0) - (a.swing?.total || 0));
+  kvMrPicks = dedup(kvMrPicks).sort((a, b) => (b.mr?.mrScore || 0) - (a.mr?.mrScore || 0)).slice(0, 10);
 
   const mergedStats = { ...stats, breadth: mergedBreadth };
 
-  // Save scan results + TA picks + movers (parallel KV writes)
+  // Save scan results + TA picks + movers + MR picks (parallel KV writes)
   await Promise.all([
     env.NCAPITAL_KV.put("scan:results", JSON.stringify({ hits: kvHits, stats: mergedStats }), { expirationTtl: 259200 }),
     env.NCAPITAL_KV.put("scan:ta-picks", JSON.stringify({
       picks: kvPicks,
       movers: kvMovers,
+      mrPicks: kvMrPicks,
       stats: {
         totalScanned: allResults.length, longPicks: kvPicks.length, movers: kvMovers.length,
+        mrPicks: kvMrPicks.length,
         unfilteredPicks: unfilteredPicks.length,
         scanScope,
-        marketRegime: {
-          sp500: gspcAboveSMA200 ? "bullish" : "bearish",
-          dax: gdaxiAboveSMA200 ? "bullish" : "bearish",
-        },
-        filters: ["Score \u2265 7.5", "RS 0\u201315%", "EMA20 < 2 ATR", "Index > SMA200", "Max 2/Sektor"],
+        marketRegime: { sp500: usRegime, dax: daxRegime, vix: Math.round(vixPrice * 10) / 10 },
+        regimeParams: { effective: effectiveRegime, ...regimeParams },
+        filters: [`Score >= ${scoreThreshold}`, `RS 0-${regimeParams.rsMax}%`, `EMA20 < ${regimeParams.ema20Max} ATR`, "ADX > 20", "Index > SMA200 (hysteresis)", `Max ${regimeParams.sectorMax}/Sektor`],
       },
       timestamp: new Date().toISOString(),
     }), { expirationTtl: 259200 }),
   ]);
 
-  console.log(`[Scan] [${scanScope}] Merged: ${allResults.length} scanned, ${kvHits.length} hits, ${kvPicks.length} TA picks (${taPicks.length} new + ${kvPicks.length - currentPicksMapped.length} preserved), ${kvMovers.length} movers, ${stats.errors} errors`);
+  console.log(`[Scan] [${scanScope}] Merged: ${allResults.length} scanned, ${kvHits.length} hits, ${kvPicks.length} TA picks (${taPicks.length} new + ${kvPicks.length - currentPicksMapped.length} preserved), ${kvMrPicks.length} MR picks, ${kvMovers.length} movers, ${stats.errors} errors | Regime: ${effectiveRegime}`);
 
   // Trade-Setup Scanner (swing >= 78) deaktiviert — ersetzt durch TA-Scanner + Mover Alerts
 
@@ -2591,7 +2882,7 @@ async function sendTelegramTAPicksAlert(taPicks, env) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
   if (!taPicks || taPicks.length === 0) return;
 
-  // All picks already filtered to Score >= 7.5 in processAndNotify pipeline
+  // All picks already filtered to regime-dependent score threshold in processAndNotify pipeline
   // Per-symbol cooldown: skip already-alerted symbols (6 hours)
   const cooldownKeys = taPicks.map((r) => `tg-ta:${r.displaySymbol}`);
   const cooldownValues = await Promise.all(cooldownKeys.map((k) => env.NCAPITAL_KV.get(k)));
@@ -2619,18 +2910,20 @@ async function sendTelegramTAPicksAlert(taPicks, env) {
     const rr = tp ? tp.rr : "?";
     const rs = r.relStrengthVsIndex != null
       ? `${r.relStrengthVsIndex > 0 ? "+" : ""}${r.relStrengthVsIndex.toFixed(1)}%`
-      : "—";
-    return `• <b>${esc(r.displaySymbol)}</b>  R:R ${rr}  │  RS ${rs}`;
+      : "\u2014";
+    const tierBadge = r.tier === "HIGH_CONVICTION" ? " \u{1F525}" : "";
+    const entryLabel = tp?.entryMode === "MARKET" ? "MKT" : "PB";
+    return `\u2022 <b>${esc(r.displaySymbol)}</b>${tierBadge}  R:R ${rr} [${entryLabel}]  \u2502  RS ${rs}`;
   });
 
-  const header = `\u{1F4CA} <b>TA-Scanner: STRONG BUY</b>`;
-  const subheader = `<i>Score \u2265 7.5 • RS 0–15% • EMA20 &lt; 2 ATR</i>`;
+  const header = `\u{1F4CA} <b>TA-Scanner: LONG Picks</b>`;
+  const subheader = `<i>Regime-filtered \u2022 ADX &gt; 20 \u2022 RS 0\u201320%</i>`;
   const appLink = `\n\n\u{1F517} <a href="https://nilsnoeller-tech.github.io/trading/">Details, Entry, Stop &amp; Ziel in der App</a>`;
-  const msg = `${header}\n${subheader}\n────────────\n${lines.join("\n")}${appLink}`;
+  const msg = `${header}\n${subheader}\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n${lines.join("\n")}${appLink}`;
 
   await sendTelegramMessages([msg], env);
   await Promise.all(cooldownWrites);
-  console.log(`[Telegram] TA picks alert sent: ${newPicks.length} STRONG BUY (Score>7.5, filtered from ${taPicks.length} optimized picks)`);
+  console.log(`[Telegram] TA picks alert sent: ${newPicks.length} LONG picks (filtered from ${taPicks.length} optimized picks)`);
 }
 
 // ── Telegram ATR Mover Alerts (>= 3 ATR) ──
