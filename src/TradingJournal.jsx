@@ -204,9 +204,9 @@ function computePortfolio(tradeList, startkapital) {
   const wins = closedTrades.filter(t => t.pnl > 0);
   const losses = closedTrades.filter(t => t.pnl <= 0);
   const winRate = closedTrades.length > 0 ? (wins.length / closedTrades.length) * 100 : 0;
-  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
-  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0) / losses.length) : 0;
-  const profitFaktor = losses.length === 0 ? (wins.length > 0 ? Infinity : 0) : (avgLoss > 0 ? avgWin / avgLoss : 0);
+  const grossProfit = wins.reduce((s, t) => s + t.pnl, 0);
+  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+  const profitFaktor = losses.length === 0 ? (wins.length > 0 ? Infinity : 0) : (grossLoss > 0 ? grossProfit / grossLoss : 0);
   const avgR = closedTrades.length > 0 ? closedTrades.reduce((s, t) => s + t.rValue, 0) / closedTrades.length : 0;
   const offenRisiko = openTrades.reduce((s, t) => {
     const remaining = t.remaining ?? t.totalBought ?? 0;
