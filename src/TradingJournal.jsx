@@ -242,24 +242,28 @@ function computePortfolio(tradeList, startkapital) {
     });
 
   const allForStats = [...closedTrades];
-  const gruenTrades = allForStats.filter(t => t.ampel === "GRÜN").length;
-  const orangeTrades = allForStats.filter(t => t.ampel === "ORANGE").length;
-  const rotTrades = allForStats.filter(t => t.ampel === "ROT").length;
-  const nichtTradenTrades = allForStats.filter(t => t.ampel === "NICHT TRADEN").length;
   const total = allForStats.length || 1;
-  const avgScore = allForStats.length > 0 ? allForStats.reduce((s, t) => s + t.score, 0) / allForStats.length : 0;
   const gesamtGebuehren = closedTrades.reduce((s, t) => s + (t.totalGebuehren || 0), 0);
+
+  // Win-Rate und Ø R pro Ampel-Kategorie
+  const ampelStats = {};
+  for (const cat of ["GRÜN", "ORANGE", "ROT", "NICHT TRADEN", "MANUELL"]) {
+    const trades = allForStats.filter(t => t.ampel === cat);
+    const catWins = trades.filter(t => t.pnl > 0).length;
+    const catAvgR = trades.length > 0 ? trades.reduce((s, t) => s + t.rValue, 0) / trades.length : 0;
+    ampelStats[cat] = { count: trades.length, wins: catWins, winRate: trades.length > 0 ? (catWins / trades.length) * 100 : 0, avgR: catAvgR, pct: (trades.length / total) * 100 };
+  }
 
   return {
     startkapital, kapital, realisiertGewinn, gesamtGebuehren, offenRisiko, roiPct,
     winRate, profitFaktor, avgR, tradesGesamt: closedTrades.length,
     equityPoints, monthlyPerf,
     setupQuality: {
-      avgScore,
-      gruen: (gruenTrades / total) * 100,
-      orange: (orangeTrades / total) * 100,
-      rot: (rotTrades / total) * 100,
-      nichtTraden: (nichtTradenTrades / total) * 100,
+      gruen: ampelStats["GRÜN"].pct,
+      orange: ampelStats["ORANGE"].pct,
+      rot: ampelStats["ROT"].pct,
+      nichtTraden: ampelStats["NICHT TRADEN"].pct,
+      ampelStats,
     },
     closedTrades, openTrades,
   };
@@ -512,7 +516,7 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
     if (!sym || sym.length < 1) return null;
     const matches = tradeList.filter(t => t.symbol === sym);
     if (matches.length === 0) return null;
-    let totalPnl = 0, totalR = 0, totalScore = 0, wins = 0, losses = 0;
+    let totalPnl = 0, totalR = 0, wins = 0, losses = 0;
     let openTrade = null;
     matches.forEach(t => {
       const props = tradeComputedProps(t);
@@ -526,18 +530,17 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
         totalR += rVal;
         if (pnl > 0) wins++; else losses++;
       }
-      totalScore += t.score;
       if (props.remaining > 0) openTrade = { ...t, ...props };
     });
-    const avgScore = matches.length > 0 ? totalScore / matches.length : 0;
     const avgR = (wins + losses) > 0 ? totalR / (wins + losses) : 0;
+    const wr = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : 0;
     let insight = "";
     if (wins + losses >= 2) {
-      if (avgScore >= 70 && losses > wins) insight = "Trotz hoher Scores oft Verluste — Pattern prüfen";
-      else if (avgScore < 60 && wins > losses) insight = "Performt besser als der Score vermuten lässt";
-      else insight = "Score korreliert gut mit Ergebnis";
+      if (wr < 40) insight = "Niedrige WR bei diesem Symbol — Setup hinterfragen";
+      else if (wr >= 60 && avgR > 0) insight = "Starkes Symbol — Setup funktioniert gut";
+      else insight = "Solide Trefferquote";
     }
-    return { symbol: sym, count: matches.length, wins, losses, avgScore, avgR, totalPnl, openTrade, insight };
+    return { symbol: sym, count: matches.length, wins, losses, winRate: wr, avgR, totalPnl, openTrade, insight };
   }, [inputs.symbol, tradeList]);
 
   const fetchFxRate = async () => {
@@ -831,8 +834,8 @@ const TradeCheck = ({ portfolio, tradeList, onAddTrade, onUpdateTrade, onNavigat
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{symbolHistory.wins + symbolHistory.losses} ({symbolHistory.wins}W / {symbolHistory.losses}L)</div>
                 </div>
                 <div style={{ padding: "6px 10px", borderRadius: 8, background: "rgba(10,13,17,0.4)" }}>
-                  <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>Ø Score</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: C.accentLight }}>{symbolHistory.avgScore.toFixed(0)}</div>
+                  <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>Win-Rate</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: symbolHistory.winRate >= 50 ? C.green : C.red }}>{symbolHistory.winRate.toFixed(0)}%</div>
                 </div>
                 <div style={{ padding: "6px 10px", borderRadius: 8, background: "rgba(10,13,17,0.4)" }}>
                   <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>Gesamt P&L</div>
@@ -1400,7 +1403,7 @@ const Dashboard = ({ portfolio }) => {
           </ResponsiveContainer>
         </GlassCard>
         <GlassCard>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 16 }}>Setup-Qualität</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 16 }}>TA Score Analyse</div>
           <div style={{ display: "flex", justifyContent: "center" }}>
             <PieChart width={200} height={200}>
               <Pie data={[
@@ -1413,22 +1416,28 @@ const Dashboard = ({ portfolio }) => {
               </Pie>
             </PieChart>
           </div>
-          <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
             {[
-              { l: "Grün", v: P.setupQuality.gruen, c: C.green },
-              { l: "Orange", v: P.setupQuality.orange, c: C.orange },
-              { l: "Rot", v: P.setupQuality.rot, c: C.red },
-              { l: "Nicht traden", v: P.setupQuality.nichtTraden, c: C.noTrade },
-            ].map((s, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 4, background: s.c }} />
-                <span style={{ fontSize: 11, color: C.textMuted }}>{s.l} {s.v.toFixed(0)}%</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ textAlign: "center", marginTop: 14, padding: "8px 12px", borderRadius: 8, background: `${C.accent}08`, border: `1px solid ${C.accent}20` }}>
-            <span style={{ fontSize: 11, color: C.textMuted }}>Ø Score: </span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: C.accentLight }}>{P.setupQuality.avgScore.toFixed(1)}</span>
+              { l: "Grün", key: "GRÜN", c: C.green },
+              { l: "Orange", key: "ORANGE", c: C.orange },
+              { l: "Rot", key: "ROT", c: C.red },
+              { l: "Manuell", key: "MANUELL", c: C.blue },
+            ].filter(s => (P.setupQuality.ampelStats?.[s.key]?.count || 0) > 0).map((s, i) => {
+              const st = P.setupQuality.ampelStats?.[s.key] || { count: 0, winRate: 0, avgR: 0 };
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderRadius: 8, background: `${s.c}08`, border: `1px solid ${s.c}15` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 4, background: s.c }} />
+                    <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{s.l}</span>
+                    <span style={{ fontSize: 11, color: C.textDim }}>({st.count})</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <span style={{ fontSize: 11, color: st.winRate >= 50 ? C.green : C.red, fontWeight: 700 }}>WR {st.winRate.toFixed(0)}%</span>
+                    <span style={{ fontSize: 11, color: st.avgR >= 0 ? C.green : C.red, fontWeight: 700 }}>{st.avgR >= 0 ? "+" : ""}{st.avgR.toFixed(1)}R</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </GlassCard>
       </div>
@@ -2099,7 +2108,7 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: isMobile ? 750 : "auto" }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                {["", "Datum", "Symbol", "Ø Kauf", "Stop", "Ziel", "Ø Verk.", "Pos.", "Ergebnis", "R", "Score", "Aktion"].map(h => (
+                {["", "Datum", "Symbol", "Ø Kauf", "Stop", "Ziel", "Ø Verk.", "Pos.", "Ergebnis", "R", "Aktion"].map(h => (
                   <th key={h} style={{ padding: "14px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.05em", background: "rgba(10,13,17,0.5)", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -2142,11 +2151,6 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
                         {t.totalGebuehren > 0 && t.totalSold > 0 && <div style={{ fontSize: 10, color: C.textDim, fontWeight: 500 }}>({t.totalGebuehren.toFixed(2)}€ Geb.)</div>}
                       </td>
                       <td style={{ padding: "10px 12px", fontWeight: 700, color: t.totalSold === 0 ? C.textDim : t.rValue >= 0 ? C.green : C.red }}>{t.totalSold > 0 ? `${t.rValue >= 0 ? "+" : ""}${t.rValue.toFixed(1)}R` : "–"}</td>
-                      <td style={{ padding: "10px 12px" }}>
-                        <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 36, height: 24, borderRadius: 6, fontSize: 12, fontWeight: 700, color: ampelColor(t.ampel), background: ampelBg(t.ampel), border: `1px solid ${ampelBorder(t.ampel)}`, padding: "0 6px" }}>
-                          {t.botScore && t.botScore !== t.score ? `${t.score} | ${t.botScore}` : t.score}
-                        </div>
-                      </td>
                       <td style={{ padding: "10px 12px" }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                           {t.remaining > 0 && (
