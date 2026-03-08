@@ -84,7 +84,8 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-// Claim clients immediately on activation
+// Skip waiting + claim clients immediately so updates take effect without closing tabs
+self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil(clients.claim());
 });
