@@ -90,7 +90,11 @@ export default function Briefing({ onNavigate, portfolio }) {
       else setLoading(true);
       setError(null);
 
+      // TA-Picks immer laden (unabhaengig vom Briefing-Cache)
+      const taPromise = authFetch(`${PROXY_BASE}/api/scan/ta-picks`).catch(() => null);
+
       // Check localStorage cache first (5 min freshness)
+      let usedCache = false;
       if (!force) {
         try {
           const cached = localStorage.getItem("ncapital-briefing-cache");
@@ -98,21 +102,22 @@ export default function Briefing({ onNavigate, portfolio }) {
             const { data: cachedData, ts } = JSON.parse(cached);
             if (Date.now() - ts < 5 * 60 * 1000) {
               setData(cachedData);
-              setLoading(false);
-              return;
+              usedCache = true;
             }
           }
         } catch {}
       }
 
-      const [res, taRes] = await Promise.all([
-        authFetch(`${PROXY_BASE}/api/briefing/latest`),
-        authFetch(`${PROXY_BASE}/api/scan/ta-picks`).catch(() => null),
-      ]);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setData(json);
-      localStorage.setItem("ncapital-briefing-cache", JSON.stringify({ data: json, ts: Date.now() }));
+      if (!usedCache) {
+        const res = await authFetch(`${PROXY_BASE}/api/briefing/latest`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        setData(json);
+        localStorage.setItem("ncapital-briefing-cache", JSON.stringify({ data: json, ts: Date.now() }));
+      }
+
+      // TA-Picks Ergebnis abwarten
+      const taRes = await taPromise;
       if (taRes?.ok) {
         const taJson = await taRes.json();
         setTaPicks(taJson);
