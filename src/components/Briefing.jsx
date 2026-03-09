@@ -547,6 +547,65 @@ function MacroRemainingSection({ macro, vixHistory, isMobile }) {
   );
 }
 
+// ─── VIX Level Tooltip ───
+const VIX_LEVELS = [
+  { min: 0, max: 12, label: "Sehr niedrig", color: C.green, desc: "Extreme Sorglosigkeit. Markt preist kaum Risiko ein. Oft vor Korrekturen." },
+  { min: 12, max: 16, label: "Niedrig", color: "#00D68F", desc: "Typisch fuer ruhige Bullenmaerkte. Normales Umfeld fuer Swing-Trades." },
+  { min: 16, max: 20, label: "Normal", color: C.yellow, desc: "Gesunde Volatilitaet. Standardniveau — weder Angst noch Sorglosigkeit." },
+  { min: 20, max: 25, label: "Erhoeht", color: C.orange, desc: "Steigende Unsicherheit. Positionsgroessen reduzieren, engere Stops." },
+  { min: 25, max: 30, label: "Hoch", color: "#FF6B6B", desc: "Deutliche Angst im Markt. Nur High-Conviction-Trades. Mean-Reversion moeglich." },
+  { min: 30, max: 999, label: "Sehr hoch / Panik", color: C.red, desc: "Panik-Modus (COVID, 2008-Niveau). Keine neuen LONG-Positionen. Absicherung pruefen." },
+];
+
+function VixLevelTooltip({ value }) {
+  const [show, setShow] = useState(false);
+  const vixVal = typeof value === "number" ? value : parseFloat(value);
+  if (!vixVal || isNaN(vixVal)) return null;
+  const currentLevel = VIX_LEVELS.find(l => vixVal >= l.min && vixVal < l.max) || VIX_LEVELS[VIX_LEVELS.length - 1];
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <span style={{ cursor: "help", borderBottom: `1px dashed ${C.textDim}`, color: C.textDim, fontSize: 12, fontFamily: "monospace" }}>
+        {vixVal.toFixed(2)}
+      </span>
+      {show && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+          background: "#1A1F2B", border: `1px solid ${C.border}`, borderRadius: 10, padding: 14,
+          zIndex: 1000, width: 280, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 10 }}>VIX-Skala</div>
+          {VIX_LEVELS.map((level, i) => {
+            const isActive = level === currentLevel;
+            return (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: 6,
+                background: isActive ? `${level.color}15` : "transparent",
+                border: isActive ? `1px solid ${level.color}30` : "1px solid transparent",
+                marginBottom: 3,
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: level.color, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, fontWeight: isActive ? 700 : 500, color: isActive ? level.color : C.textMuted }}>
+                    {level.min}–{level.max < 999 ? level.max : "∞"}: {level.label}
+                  </div>
+                  {isActive && (
+                    <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2, lineHeight: 1.3 }}>
+                      {level.desc}
+                    </div>
+                  )}
+                </div>
+                {isActive && <span style={{ fontSize: 11, fontWeight: 700, color: level.color }}>{"\u25C0"}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Intermarket Signals Section ───
 function IntermarketSection({ signals, isMobile }) {
   if (!signals?.length) return null;
@@ -558,22 +617,27 @@ function IntermarketSection({ signals, isMobile }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
-        {signals.map((sig, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg, borderRadius: 10, padding: "10px 14px", border: `1px solid ${C.border}` }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{sig.indicator}</div>
-              <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{sig.interpretation}</div>
+        {signals.map((sig, i) => {
+          const isVix = sig.indicator === "VIX";
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg, borderRadius: 10, padding: "10px 14px", border: `1px solid ${C.border}` }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{sig.indicator}</div>
+                <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{sig.interpretation}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {sig.value != null && (
+                  isVix ? <VixLevelTooltip value={sig.value} /> : (
+                    <span style={{ color: C.textDim, fontSize: 12, fontFamily: "monospace" }}>
+                      {typeof sig.value === "number" ? sig.value.toFixed(2) : sig.value}
+                    </span>
+                  )
+                )}
+                <SignalBadge signal={sig.signal} />
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {sig.value != null && (
-                <span style={{ color: C.textDim, fontSize: 12, fontFamily: "monospace" }}>
-                  {typeof sig.value === "number" ? sig.value.toFixed(2) : sig.value}
-                </span>
-              )}
-              <SignalBadge signal={sig.signal} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </GlassCard>
   );
