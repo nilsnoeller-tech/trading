@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import ReactDOM from "react-dom";
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2, Eye, EyeOff, Layers, Newspaper, LogOut, Settings as SettingsIcon, User, Edit3, Trash2, Save, Camera, Image as ImageIcon, Calendar } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, Shield, BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, CheckCircle, XCircle, Zap, Bell, LayoutDashboard, BookOpen, Calculator, ChevronRight, ChevronLeft, ChevronDown, RotateCcw, ArrowRight, Hash, Crosshair, Menu, X, Plus, Info, Wifi, WifiOff, BarChart2, Eye, EyeOff, Layers, Newspaper, LogOut, Settings as SettingsIcon, User, Edit3, Trash2, Save, Camera, Image as ImageIcon, Calendar, Clock } from "lucide-react";
 import Watchlist from "./components/Watchlist";
 import Briefing from "./components/Briefing";
 import LoginPage from "./components/LoginPage";
@@ -1635,7 +1635,9 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
     const pnl = pnlBrutto - props.totalGebuehren;
     const riskPS = Math.abs(props.avgKaufkurs - t.stopLoss);
     const rValue = riskPS > 0 && props.totalSold > 0 ? (props.avgVerkaufskurs - props.avgKaufkurs) / riskPS : 0;
-    return { ...t, ...props, pnl, pnlBrutto, rValue, fx };
+    // Haltezeit in Tagen (ab erstem Kauf)
+    const holdingDays = props.datum ? Math.max(0, Math.floor((new Date() - new Date(props.datum)) / (1000 * 60 * 60 * 24))) : 0;
+    return { ...t, ...props, pnl, pnlBrutto, rValue, fx, holdingDays };
   }), [tradeList]);
 
   const filtered = filter === "Alle" ? enriched
@@ -2216,8 +2218,35 @@ const TradeLog = ({ tradeList, onUpdateTrade, onDeleteTrade, onAddTrade }) => {
                               style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", border: `1px solid ${C.border}`, cursor: "pointer", flexShrink: 0 }} />
                           )}
                           <div>
-                            <span style={{ fontWeight: 700, color: C.text, fontSize: 14 }}>{t.symbol}</span>
-                            <span style={{ fontSize: 10, color: C.textDim, marginLeft: 6, fontWeight: 600 }}>{t.originalWaehrung === "USD" ? "USD→EUR" : "EUR"}</span>
+                            <div>
+                              <span style={{ fontWeight: 700, color: C.text, fontSize: 14 }}>{t.symbol}</span>
+                              <span style={{ fontSize: 10, color: C.textDim, marginLeft: 6, fontWeight: 600 }}>{t.originalWaehrung === "USD" ? "USD→EUR" : "EUR"}</span>
+                            </div>
+                            {t.remaining > 0 && (() => {
+                              const days = t.holdingDays;
+                              const maxDays = 30;
+                              const timerColor = days >= 30 ? C.red : days >= 25 ? C.orange : days >= 21 ? C.yellow : C.textDim;
+                              const timerBg = days >= 30 ? C.redBg : days >= 25 ? C.orangeBg : days >= 21 ? C.yellowBg : "rgba(90,100,120,0.08)";
+                              const timerBorder = days >= 30 ? C.redBorder : days >= 25 ? C.orangeBorder : days >= 21 ? C.yellowBorder : "transparent";
+                              const pct = Math.min(100, (days / maxDays) * 100);
+                              return (
+                                <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}>
+                                  <Clock size={10} color={timerColor} />
+                                  <div style={{ position: "relative", width: 40, height: 4, borderRadius: 2, background: "rgba(90,100,120,0.15)" }}>
+                                    <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${pct}%`, borderRadius: 2, background: timerColor, transition: "width 0.3s" }} />
+                                  </div>
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 700, color: timerColor,
+                                    padding: days >= 25 ? "1px 5px" : "0",
+                                    borderRadius: 4,
+                                    background: days >= 25 ? timerBg : "transparent",
+                                    border: days >= 25 ? `1px solid ${timerBorder}` : "none",
+                                  }}>
+                                    {days >= 30 ? `${days}d!` : `${days}/${maxDays}d`}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       </td>
