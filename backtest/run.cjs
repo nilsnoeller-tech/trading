@@ -194,41 +194,7 @@ const VARIANTS = {
     regimeRiskPct: { STRONG_BULL: 0.015 },
   },
 
-  // ─── BEAR_PAUSE: Kein Trading in CRISIS, nur 1 Pos in MOD_BEAR ───
-  "BEAR_PAUSE": {
-    ...AKTUELL_PLUS_BASE,
-    label: "HOLD30 + 1.5% Bull + CRISIS=0, MODBEAR=1",
-    maxHoldingDays: 30,
-    useEnhancedScore: false,
-    useEnhancedFilters: false,
-    regimeRiskPct: { STRONG_BULL: 0.015 },
-    regimeParams: {
-      STRONG_BULL:   { scoreThreshold: 6.3, maxPositions: 7, rsMax: 22, ema20Max: 2.8 },
-      MODERATE_BULL: { scoreThreshold: 6.5, maxPositions: 5, rsMax: 20, ema20Max: 2.5 },
-      TRANSITION:    { scoreThreshold: 7.0, maxPositions: 3, rsMax: 15, ema20Max: 2.0 },
-      MODERATE_BEAR: { scoreThreshold: 7.0, maxPositions: 1, rsMax: 15, ema20Max: 2.0 },
-      CRISIS:        { scoreThreshold: 9.9, maxPositions: 0, rsMax: 15, ema20Max: 2.0 },
-    },
-  },
-
-  // ─── BEAR_STRICT: Hoehere Schwellen + weniger Pos in Bear-Regimes ───
-  "BEAR_STRICT": {
-    ...AKTUELL_PLUS_BASE,
-    label: "HOLD30 + 1.5% Bull + strikte Bear-Filter",
-    maxHoldingDays: 30,
-    useEnhancedScore: false,
-    useEnhancedFilters: false,
-    regimeRiskPct: { STRONG_BULL: 0.015 },
-    regimeParams: {
-      STRONG_BULL:   { scoreThreshold: 6.3, maxPositions: 7, rsMax: 22, ema20Max: 2.8 },
-      MODERATE_BULL: { scoreThreshold: 6.5, maxPositions: 5, rsMax: 20, ema20Max: 2.5 },
-      TRANSITION:    { scoreThreshold: 7.0, maxPositions: 2, rsMax: 15, ema20Max: 2.0 },
-      MODERATE_BEAR: { scoreThreshold: 7.5, maxPositions: 1, rsMax: 10, ema20Max: 1.5 },
-      CRISIS:        { scoreThreshold: 8.0, maxPositions: 1, rsMax: 10, ema20Max: 1.5 },
-    },
-  },
-
-  // ─── BEAR_HALFRISK: Halbiertes Risiko in Bear-Regimes ───
+  // ─── BEAR_HALFRISK: Halbiertes Risiko + weniger Pos in Bear-Regimes (PRODUKTION) ───
   "BEAR_HALFRISK": {
     ...AKTUELL_PLUS_BASE,
     label: "HOLD30 + 1.5% Bull + 0.5% Risk in Bear",
