@@ -1,6 +1,7 @@
 // ─── N-Capital Market Data Proxy + Full Index Scanner (Cloudflare Worker) ───
 // Routes: /api/chart, /api/batch, /api/push/*, /api/scan/*, /api/briefing/*
-// Cron: Chunked scan of S&P 250 (alle 2 Min ein Chunk, voller Scan ~22 Min)
+// Cron: Chunked scan of S&P 250 (alle 2 Min ein Chunk, voller Scan ~30 Min)
+const SCANNER_VERSION = "v2.5-sp250-bear-halfrisk";
 // KV-Optimized: accumulator pattern — scan:live holds state+results (1R+1W per invocation)
 // Deployment: cd proxy && npx wrangler deploy
 
@@ -2430,7 +2431,7 @@ function getActiveSymbols() {
   const etTime = etH * 60 + etM; // Minutes since midnight ET
 
   // NYSE: 9:30 (570) – 16:00 (960) ET + 30min buffer after close
-  if (etTime >= 570 && etTime < 990) return { symbols: [...SP100_SYMBOLS], mode: "us" };
+  if (etTime >= 570 && etTime < 990) return { symbols: [...ALL_INDEX_SYMBOLS], mode: "us" };
   return { symbols: [], mode: "closed" };
 }
 
@@ -2453,6 +2454,8 @@ function errorResult(sym, errMsg) {
 async function runChunkedScan(env) {
   // 1. Determine which symbols to scan based on current time
   const { symbols: activeSymbols, mode: currentMode } = getActiveSymbols();
+
+  console.log(`[Scan] ${SCANNER_VERSION} | activeSymbols=${activeSymbols.length} mode=${currentMode}`);
 
   // 2. Market closed — skip without writing (saves KV writes)
   if (currentMode === "closed" || activeSymbols.length === 0) {
@@ -4087,6 +4090,8 @@ async function handleScanRoutes(url, request, env) {
     const chunkSize = cfg.chunkSize || SCAN_DEFAULTS.chunkSize;
 
     return jsonResponse({
+      version: SCANNER_VERSION,
+      allIndexSymbolsCount: ALL_INDEX_SYMBOLS.length,
       currentChunk: s.pointer || 0,
       totalChunks: s.totalChunks || Math.ceil(liveSymbols.length / chunkSize),
       totalSymbols: s.totalSymbols || liveSymbols.length,

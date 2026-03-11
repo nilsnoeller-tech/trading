@@ -1135,6 +1135,12 @@ function runBacktest(allData, startDate, endDate, variant) {
       }
       if (effectiveScore < scoreThreshold) continue;
 
+      // Volatility Filter: ATR/Price minimum (skip low-vol stocks)
+      if (cfg.minAtrPct) {
+        const atrPct = result.indicators.atr / lookback[lookback.length - 1].close;
+        if (atrPct < cfg.minAtrPct) continue;
+      }
+
       // Enhanced Filters: remove clearly bad setups
       if (cfg.useEnhancedFilters) {
         const eb = result.enhancedBreakdown || {};
